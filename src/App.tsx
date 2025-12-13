@@ -1,27 +1,84 @@
 // src/App.tsx
 import { useState, useEffect, useRef } from 'react'
-import { Button, Container, Title, Text, Group, Paper, Grid, Slider, Badge, Stack } from '@mantine/core'
+import { Button, Container, Title, Text, Group, Paper, Grid, Slider, Badge, Stack, Select, Switch } from '@mantine/core'
 import { Routes, Route, Link } from 'react-router-dom'
 import * as Tone from 'tone'
+
+// --- 節奏模式資料結構 ---
+type SubBeat = {
+  time: string // Tone.js time notation (e.g., "0:0:0", "0:0:2")
+  note: string // 音符高度
+  label: string // 視覺標籤 (e.g., "1", "ple", "2")
+  isMain: boolean // 是否為主拍
+}
+
+type PatternType = 'step-step' | 'triple-step'
+
+type Pattern = {
+  id: PatternType
+  name: string
+  duration: string // 此模式佔用的總長度 (e.g., "2n" = 2拍)
+  subBeats: SubBeat[] // 此模式包含的所有拍點
+}
+
+// 定義節奏模式
+const PATTERNS: Record<PatternType, Pattern> = {
+  'step-step': {
+    id: 'step-step',
+    name: 'Step Step',
+    duration: '2n', // 2拍 (兩個四分音符)
+    subBeats: [
+      { time: '0:0:0', note: 'C2', label: '1', isMain: true },
+      { time: '0:1:0', note: 'C1', label: '2', isMain: true }
+    ]
+  },
+  'triple-step': {
+    id: 'triple-step',
+    name: 'Triple Step',
+    duration: '2n', // 2拍
+    subBeats: [
+      { time: '0:0:0', note: 'C2', label: 'Tri', isMain: true },
+      { time: '0:0:2', note: 'C1', label: 'ple', isMain: false }, // 八分音符的後半拍
+      { time: '0:1:0', note: 'C1', label: 'Step', isMain: true }
+    ]
+  }
+}
 
 // --- 節拍練習器組件 ---
 function RhythmTrainer() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [bpm, setBpm] = useState(120)
-  // 用來追蹤目前走到第幾拍 (0-7)，用於視覺顯示
-  const [currentBeat, setCurrentBeat] = useState<number | null>(null)
+  const [loop, setLoop] = useState(true) // 循環播放開關
+  const [currentBeatIndex, setCurrentBeatIndex] = useState<number | null>(null)
 
-  // 定義 4 個小組，每個小組 2 拍，這裡可以擴充你的 "Triple Step", "Step Step" 邏輯
-  // 這裡僅示範結構，未來你可以把每個小組變成可選單
-  const groups = [1, 2, 3, 4]
+  // 4個小組，每個小組可選擇不同的模式
+  const [groupPatterns, setGroupPatterns] = useState<PatternType[]>([
+    'triple-step',
+    'triple-step',
+    'triple-step',
+    'triple-step'
+  ])
 
-  // 用 ref 存儲 Loop 物件，避免重渲染時遺失
-  const loopRef = useRef<Tone.Sequence | null>(null)
+  // 用 ref 存儲 Tone.js 物件
+  const partRef = useRef<Tone.Part | null>(null)
   const synthRef = useRef<Tone.MembraneSynth | null>(null)
 
   useEffect(() => {
-    // 初始化合成器 (發出聲音的東西)
-    synthRef.current = new Tone.MembraneSynth().toDestination()
+    // 使用 MembraneSynth 製作拍掌音效 (模擬打擊樂器)
+    synthRef.current = new Tone.MembraneSynth({
+      pitchDecay: 0.008,
+      octaves: 2,
+      oscillator: {
+        type: "sine"
+      },
+      envelope: {
+        attack: 0.001,
+        decay: 0.2,
+        sustain: 0.01,
+        release: 0.2,
+        attackCurve: "exponential"
+      }
+    }).toDestination()
 
     // 設定 Swing (搖擺感)，數值 0-1，0是直拍，1是完全三連音
     Tone.Transport.swing = 0.2
@@ -31,7 +88,14 @@ function RhythmTrainer() {
       // 組件卸載時清理
       Tone.Transport.stop()
       Tone.Transport.cancel()
-      if (loopRef.current) loopRef.current.dispose()
+      if (partRef.current) {
+        partRef.current.dispose()
+        partRef.current = null
+      }
+      if (synthRef.current) {
+        synthRef.current.dispose()
+        synthRef.current = null
+      }
     }
   }, [])
 
@@ -40,93 +104,234 @@ function RhythmTrainer() {
     Tone.Transport.bpm.value = bpm
   }, [bpm])
 
+  // 建立完整的節奏序列 (包含 Pickup Beat)
+  const buildSequence = () => {
+    const events: Array<[string, number]> = []
+
+    // 加入 Pickup Beat (預備拍 'a') - 在第一拍之前的半拍
+    events.push(['0:0:2', -1]) // -1 代表 pickup beat，時間是 0 小節 0 拍的第 2 個八分音符
+
+    // 為每個小組建立拍點
+    groupPatterns.forEach((patternType, groupIndex) => {
+      const pattern = PATTERNS[patternType]
+      const measureOffset = groupIndex * 2 // 每組佔2拍，groupIndex 0->0拍, 1->2拍, 2->4拍, 3->6拍
+
+      pattern.subBeats.forEach((subBeat) => {
+        // 解析相對時間並加上小組偏移
+        const [bar, quarter, eighth] = subBeat.time.split(':').map(Number)
+        const totalQuarters = bar * 4 + quarter + measureOffset + 1 // +1 讓所有拍點往後移一拍，為 pickup beat 留空間
+        const timeStr = `0:${totalQuarters}:${eighth}`
+
+        // 記錄時間與拍點索引
+        const beatIndex = events.length
+        events.push([timeStr, beatIndex])
+      })
+    })
+
+    return events
+  }
+
   const togglePlay = async () => {
     if (!isPlaying) {
       await Tone.start() // 瀏覽器要求必須有互動才能開始聲音
+      console.log('Tone.js started, context state:', Tone.context.state)
 
-      // 定義一個 8 拍的序列 (0 到 7)
-      const beats = [0, 1, 2, 3, 4, 5, 6, 7]
+      const sequence = buildSequence()
+      console.log('Built sequence:', sequence)
 
-      // 建立序列：每 4 分音符觸發一次
-      loopRef.current = new Tone.Sequence((time, beatIndex) => {
-        // 1. 發出聲音
-        // 第一拍(0)重音，其他輕音
-        const note = beatIndex % 8 === 0 ? "C2" : "C1"
-        synthRef.current?.triggerAttackRelease(note, "8n", time)
+      // 建立 Tone.Part 用於精確控制每個音符的時間點
+      partRef.current = new Tone.Part((time, beatInfo) => {
+        // 修正：beatInfo 收到的直接就是我們存入的 value (也就是 beatIndex 數字)，不需要解構
+        const beatIndex = beatInfo as number
 
-        // 2. 處理視覺同步 (使用 Tone.Draw 確保動畫不延遲)
-        Tone.Draw.schedule(() => {
-          setCurrentBeat(beatIndex)
-        }, time)
+        // 處理 Pickup Beat
+        if (beatIndex === -1) {
+          // 主拍 - 較大聲的拍掌
+          if (synthRef.current) {
+            synthRef.current.volume.value = -10
+            synthRef.current.triggerAttackRelease("8n", time)
+          }
+          Tone.Draw.schedule(() => {
+            setCurrentBeatIndex(-1)
+          }, time)
+          return
+        }
 
-      }, beats, "4n").start(0)
+        // 計算實際的拍點資訊
+        let currentEventIndex = 0
+        let groupIndex = -1
+        let subBeatIndex = -1
+
+        // 跳過 pickup beat
+        for (let i = 1; i < sequence.length; i++) {
+          if (sequence[i][1] === beatIndex) {
+            currentEventIndex = i - 1 // 減去 pickup beat
+            break
+          }
+        }
+
+        // 計算屬於哪個 group 和 sub-beat
+        let accumulator = 0
+        for (let g = 0; g < groupPatterns.length; g++) {
+          const pattern = PATTERNS[groupPatterns[g]]
+          if (currentEventIndex < accumulator + pattern.subBeats.length) {
+            groupIndex = g
+            subBeatIndex = currentEventIndex - accumulator
+            break
+          }
+          accumulator += pattern.subBeats.length
+        }
+
+        if (groupIndex >= 0 && subBeatIndex >= 0) {
+          const pattern = PATTERNS[groupPatterns[groupIndex]]
+          const subBeat = pattern.subBeats[subBeatIndex]
+
+          // 1. 發出聲音 - 主拍較大聲，子拍較小聲
+          if (synthRef.current) {
+            if (subBeat.isMain) {
+              synthRef.current.volume.value = subBeat.note === 'C2' ? -8 : -12 // 第一拍更大聲
+            } else {
+              synthRef.current.volume.value = -16 // 子拍較小聲
+            }
+            synthRef.current.triggerAttackRelease("8n", time)
+          }
+
+          // 2. 視覺同步
+          Tone.Draw.schedule(() => {
+            setCurrentBeatIndex(beatIndex)
+          }, time)
+        }
+      }, sequence).start(0)
+
+      // 設定循環
+      if (loop) {
+        partRef.current.loop = true
+        partRef.current.loopEnd = "9:0:0" // 9 拍 (包含 pickup beat)
+      } else {
+        partRef.current.loop = false
+      }
 
       Tone.Transport.start()
       setIsPlaying(true)
     } else {
       Tone.Transport.stop()
-      if (loopRef.current) {
-        loopRef.current.stop()
-        loopRef.current.dispose() // 清除舊的 loop 以免疊加
+      if (partRef.current) {
+        partRef.current.stop()
+        partRef.current.dispose()
+        partRef.current = null
       }
       setIsPlaying(false)
-      setCurrentBeat(null)
+      setCurrentBeatIndex(null)
     }
   }
 
   return (
-    <Container size="sm" py="xl">
+    <Container size="lg" py="xl">
       <Title order={2} mb="lg">Swing 節拍練習器</Title>
 
       <Paper shadow="xs" p="md" withBorder>
         <Stack gap="lg">
           {/* 控制區 */}
-          <Group justify="space-between">
-            <Button
-              color={isPlaying ? "red" : "green"}
-              onClick={togglePlay}
-              size="lg"
-            >
-              {isPlaying ? "停止 (Stop)" : "開始 (Start)"}
-            </Button>
-            <Stack gap={0} style={{ flex: 1, maxWidth: '300px' }}>
+          <Group justify="space-between" align="flex-start" wrap="wrap">
+            <Group>
+              <Button
+                color={isPlaying ? "red" : "green"}
+                onClick={togglePlay}
+                size="lg"
+              >
+                {isPlaying ? "停止 (Stop)" : "開始 (Start)"}
+              </Button>
+              <Switch
+                label="循環播放"
+                checked={loop}
+                onChange={(event) => setLoop(event.currentTarget.checked)}
+                disabled={isPlaying}
+              />
+            </Group>
+            <Stack gap={0} style={{ flex: 1, minWidth: '250px', maxWidth: '300px' }}>
               <Text size="sm">BPM: {bpm}</Text>
               <Slider
                 value={bpm}
                 onChange={setBpm}
                 min={60}
                 max={200}
-                disabled={isPlaying} // 建議播放時鎖定，或需處理即時變更邏輯
+                disabled={isPlaying}
               />
             </Stack>
           </Group>
 
-          {/* 視覺化顯示區：8拍，每2拍一組 */}
-          <Grid>
-            {groups.map((group, groupIndex) => (
-              <Grid.Col span={3} key={groupIndex}>
-                <Paper
-                  p="sm"
-                  withBorder
-                  bg="gray.1"
-                  style={{ textAlign: 'center' }}
-                >
-                  <Text fw={700} mb="xs">Group {group}</Text>
-                  <Group justify="center" gap="xs">
-                    {/* 每一組裡的第 1 拍 */}
-                    <BeatIndicator
-                      isActive={currentBeat === groupIndex * 2}
-                      label={`${groupIndex * 2 + 1}`}
-                    />
-                    {/* 每一組裡的第 2 拍 */}
-                    <BeatIndicator
-                      isActive={currentBeat === groupIndex * 2 + 1}
-                      label={`${groupIndex * 2 + 2}`}
-                    />
-                  </Group>
-                  <Badge mt="sm" variant="dot" color="blue">
-                    Triple Step
-                    {/* 這裡未來可以用狀態控制顯示 Step Step 或 Triple Step */}
+          {/* Pickup Beat 顯示區 */}
+          <Paper p="sm" withBorder bg="yellow.1">
+            <Text size="xs" c="dimmed" mb="xs" ta="center">Pickup Beat</Text>
+
+            <Group gap="md" justify="center" wrap="nowrap">
+              {/* Pickup beat 'a' */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <BeatIndicator
+                  isActive={currentBeatIndex === -1}
+                  label="a"
+                  isMain={false}
+                />
+              </div>
+
+              {/* 視覺化顯示區：4個小組，每組可選擇模式 */}
+              {groupPatterns.map((patternType, groupIndex) => {
+                const pattern = PATTERNS[patternType]
+
+                // 計算此 group 的拍點在整體序列中的索引範圍
+                let startBeatIndex = 1 // 跳過 pickup beat (index 0)
+                for (let i = 0; i < groupIndex; i++) {
+                  startBeatIndex += PATTERNS[groupPatterns[i]].subBeats.length
+                }
+
+                return (
+                  <div key={groupIndex} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <Text size="xs" fw={500} mb="xs">Group {groupIndex + 1}</Text>
+                    <Group gap="xs" wrap="nowrap">
+                      {pattern.subBeats.map((subBeat, subIndex) => {
+                        const beatIndex = startBeatIndex + subIndex
+                        return (
+                          <BeatIndicator
+                            key={subIndex}
+                            isActive={currentBeatIndex === beatIndex}
+                            label={subBeat.label}
+                            isMain={subBeat.isMain}
+                          />
+                        )
+                      })}
+                    </Group>
+                  </div>
+                )
+              })}
+            </Group>
+          </Paper>
+
+          {/* 模式選擇區 */}
+          <Grid gutter="md">
+            {groupPatterns.map((patternType, groupIndex) => (
+              <Grid.Col span={{ base: 12, sm: 6, md: 3 }} key={groupIndex}>
+                <Paper p="sm" withBorder bg="gray.0">
+                  <Text size="sm" fw={600} mb="xs" ta="center">Group {groupIndex + 1}</Text>
+                  <Select
+                    value={patternType}
+                    onChange={(value) => {
+                      const newPatterns = [...groupPatterns]
+                      newPatterns[groupIndex] = value as PatternType
+                      setGroupPatterns(newPatterns)
+                    }}
+                    data={[
+                      { value: 'step-step', label: 'Step Step' },
+                      { value: 'triple-step', label: 'Triple Step' }
+                    ]}
+                    disabled={isPlaying}
+                  />
+                  <Badge
+                    mt="sm"
+                    variant="light"
+                    color={patternType === 'triple-step' ? 'blue' : 'green'}
+                    fullWidth
+                  >
+                    {PATTERNS[patternType].name}
                   </Badge>
                 </Paper>
               </Grid.Col>
@@ -142,20 +347,29 @@ function RhythmTrainer() {
   )
 }
 
-// 簡單的視覺指示燈組件
-function BeatIndicator({ isActive, label }: { isActive: boolean, label: string }) {
+// 視覺指示燈組件 - 支援主拍與子拍的差異顯示
+function BeatIndicator({ isActive, label, isMain = true }: { isActive: boolean, label: string, isMain?: boolean }) {
+  const size = isMain ? '50px' : '35px'
+  const fontSize = isMain ? '14px' : '11px'
+
   return (
     <div style={{
-      width: '40px',
-      height: '40px',
+      width: size,
+      height: size,
       borderRadius: '50%',
-      backgroundColor: isActive ? '#228be6' : '#dee2e6', // Mantine blue vs gray
+      backgroundColor: isActive
+        ? (isMain ? '#228be6' : '#4dabf7') // 主拍用深藍，子拍用淺藍
+        : (isMain ? '#dee2e6' : '#e9ecef'), // 主拍用灰色，子拍用淺灰
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      color: isActive ? 'white' : 'black',
-      fontWeight: 'bold',
-      transition: 'background-color 0.1s ease'
+      color: isActive ? 'white' : (isMain ? '#495057' : '#868e96'),
+      fontWeight: isMain ? 'bold' : 'normal',
+      fontSize: fontSize,
+      transition: 'all 0.1s ease',
+      border: isActive ? '3px solid #1864ab' : (isMain ? '2px solid #adb5bd' : '1px solid #ced4da'),
+      boxShadow: isActive ? '0 0 10px rgba(34, 139, 230, 0.5)' : 'none',
+      transform: isActive ? 'scale(1.1)' : 'scale(1)'
     }}>
       {label}
     </div>

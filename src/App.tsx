@@ -3,16 +3,18 @@ import { useState, useEffect, useRef } from 'react'
 import { Button, Container, Title, Text, Group, Paper, Grid, Slider, Badge, Stack, Select, Switch } from '@mantine/core'
 import { Routes, Route, Link } from 'react-router-dom'
 import * as Tone from 'tone'
+import { getTransport } from 'tone'
 
 // --- 節奏模式資料結構 ---
 type SubBeat = {
-  time: string // Tone.js time notation (e.g., "0:0:0", "0:0:2")
-  note: string // 音符高度
+  time: string // Tone.js time notation (e.g., "0:0:0", "0:0:2") 0 小節, 第 0 拍, 第 0 個十六分音符
+  note: string // 音符高度 (e.g. 空拍時可為'None'或 'Rest')
   label: string // 視覺標籤 (e.g., "1", "ple", "2")
-  isMain: boolean // 是否為主拍
+  isMain?: boolean // 是否為主拍
+  isRest?: boolean // 是否為空拍
 }
 
-type PatternType = 'step-step' | 'triple-step'
+type PatternType = 'step-step' | 'triple-step' | 'step-hold'
 
 type Pattern = {
   id: PatternType
@@ -30,6 +32,15 @@ const PATTERNS: Record<PatternType, Pattern> = {
     subBeats: [
       { time: '0:0:0', note: 'C2', label: '1', isMain: true },
       { time: '0:1:0', note: 'C1', label: '2', isMain: true }
+    ]
+  },
+  'step-hold': {
+    id: 'step-hold',
+    name: 'Step Hold',
+    duration: '2n', // 2拍 (兩個四分音符)
+    subBeats: [
+      { time: '0:0:0', note: 'C2', label: '1', isMain: true },
+      { time: '0:1:0', note: 'C1', label: '2', isRest: true }
     ]
   },
   'triple-step': {
@@ -61,33 +72,40 @@ function RhythmTrainer() {
 
   // 用 ref 存儲 Tone.js 物件
   const partRef = useRef<Tone.Part | null>(null)
-  const synthRef = useRef<Tone.MembraneSynth | null>(null)
+  const synthRef = useRef<Tone.NoiseSynth | null>(null)
+  const filterRef = useRef<Tone.Filter | null>(null)
 
   useEffect(() => {
-    // 使用 MembraneSynth 製作拍掌音效 (模擬打擊樂器)
-    synthRef.current = new Tone.MembraneSynth({
-      pitchDecay: 0.008,
-      octaves: 2,
-      oscillator: {
-        type: "sine"
-      },
-      envelope: {
-        attack: 0.001,
-        decay: 0.2,
-        sustain: 0.01,
-        release: 0.2,
-        attackCurve: "exponential"
-      }
+    // 使用 NoiseSynth 搭配濾波器產生更接近掌聲的音效
+    filterRef.current = new Tone.Filter({
+      frequency: 1500,
+      type: "bandpass",
+      Q: 2
     }).toDestination()
 
-    // 設定 Swing (搖擺感)，數值 0-1，0是直拍，1是完全三連音
-    Tone.Transport.swing = 0.2
-    Tone.Transport.swingSubdivision = "8n" // 設定以八分音符為基礎做 swing
+    synthRef.current = new Tone.NoiseSynth({
+      noise: {
+        type: "pink" // 粉紅噪音更接近自然掌聲
+      },
+      envelope: {
+        attack: 0.005,
+        decay: 0.08,
+        sustain: 0,
+        release: 0.08
+      }
+    }).connect(filterRef.current)
+
+    // Transport 全局時鐘,控制 BPM 和播放/停止。
+    // 設定 Swing (搖擺感),數值 0-1,0是直拍,1是完全三連音
+    getTransport().set({
+      swing: 0.2,
+      swingSubdivision: "8n" // 設定以八分音符為基礎做 swing
+    })
 
     return () => {
       // 組件卸載時清理
-      Tone.Transport.stop()
-      Tone.Transport.cancel()
+      getTransport().stop()
+      getTransport().cancel(0)
       if (partRef.current) {
         partRef.current.dispose()
         partRef.current = null
@@ -96,12 +114,16 @@ function RhythmTrainer() {
         synthRef.current.dispose()
         synthRef.current = null
       }
+      if (filterRef.current) {
+        filterRef.current.dispose()
+        filterRef.current = null
+      }
     }
   }, [])
 
   useEffect(() => {
     // 當 BPM 改變時更新
-    Tone.Transport.bpm.value = bpm
+    getTransport().bpm.value = bpm
   }, [bpm])
 
   // 建立完整的節奏序列 (包含 Pickup Beat)
@@ -148,8 +170,8 @@ function RhythmTrainer() {
         if (beatIndex === -1) {
           // 主拍 - 較大聲的拍掌
           if (synthRef.current) {
-            synthRef.current.volume.value = -10
-            synthRef.current.triggerAttackRelease("8n", time)
+            synthRef.current.volume.setValueAtTime(-8, time)
+            synthRef.current.triggerAttackRelease("16n", time)
           }
           Tone.Draw.schedule(() => {
             setCurrentBeatIndex(-1)
@@ -186,14 +208,18 @@ function RhythmTrainer() {
           const pattern = PATTERNS[groupPatterns[groupIndex]]
           const subBeat = pattern.subBeats[subBeatIndex]
 
-          // 1. 發出聲音 - 主拍較大聲，子拍較小聲
-          if (synthRef.current) {
-            if (subBeat.isMain) {
-              synthRef.current.volume.value = subBeat.note === 'C2' ? -8 : -12 // 第一拍更大聲
-            } else {
-              synthRef.current.volume.value = -16 // 子拍較小聲
+          if(!subBeat.isRest) {          
+            // 1. 發出聲音 - 主拍較大聲，子拍較小聲
+            if (synthRef.current) {
+              if (subBeat.isMain) {
+                // 第一拍更大聲、更清脆
+                synthRef.current.volume.setValueAtTime(subBeat.note === 'C2' ? -6 : -10, time)
+              } else {
+                // 子拍較小聲、較柔和
+                synthRef.current.volume.setValueAtTime(-14, time)
+              }
+              synthRef.current.triggerAttackRelease("16n", time)
             }
-            synthRef.current.triggerAttackRelease("8n", time)
           }
 
           // 2. 視覺同步
@@ -211,10 +237,10 @@ function RhythmTrainer() {
         partRef.current.loop = false
       }
 
-      Tone.Transport.start()
+      getTransport().start()
       setIsPlaying(true)
     } else {
-      Tone.Transport.stop()
+      getTransport().stop()
       if (partRef.current) {
         partRef.current.stop()
         partRef.current.dispose()
@@ -296,6 +322,7 @@ function RhythmTrainer() {
                             isActive={currentBeatIndex === beatIndex}
                             label={subBeat.label}
                             isMain={subBeat.isMain}
+                            isRest={subBeat.isRest}
                           />
                         )
                       })}
@@ -321,7 +348,8 @@ function RhythmTrainer() {
                     }}
                     data={[
                       { value: 'step-step', label: 'Step Step' },
-                      { value: 'triple-step', label: 'Triple Step' }
+                      { value: 'triple-step', label: 'Triple Step' },
+                      { value: 'step-hold', label: 'Step Hold'}
                     ]}
                     disabled={isPlaying}
                   />
@@ -348,23 +376,27 @@ function RhythmTrainer() {
 }
 
 // 視覺指示燈組件 - 支援主拍與子拍的差異顯示
-function BeatIndicator({ isActive, label, isMain = true }: { isActive: boolean, label: string, isMain?: boolean }) {
+function BeatIndicator({ isActive, label, isMain = true, isRest = false }: { isActive: boolean, label: string, isMain?: boolean, isRest?: boolean }) {
   const size = isMain ? '50px' : '35px'
   const fontSize = isMain ? '14px' : '11px'
+
+  const baseColor = isRest ? '#f8f9fa' : (isMain ? '#dee2e6' : '#e9ecef') // 空拍用超淺色
+  const activeColor = isRest ? '#fa5252' : (isMain ? '#228be6' : '#4dabf7') // 空拍被點亮時特殊色
+
+  const textColor = isActive ? 'white' : (isRest ? '#adb5bd' : (isMain ? '#495057' : '#868e96'))
+  const fontWeight = isRest ? 'normal' : (isMain ? 'bold' : 'normal');
 
   return (
     <div style={{
       width: size,
       height: size,
       borderRadius: '50%',
-      backgroundColor: isActive
-        ? (isMain ? '#228be6' : '#4dabf7') // 主拍用深藍，子拍用淺藍
-        : (isMain ? '#dee2e6' : '#e9ecef'), // 主拍用灰色，子拍用淺灰
+      backgroundColor: isActive ? activeColor : baseColor,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      color: isActive ? 'white' : (isMain ? '#495057' : '#868e96'),
-      fontWeight: isMain ? 'bold' : 'normal',
+      color: textColor,
+      fontWeight: fontWeight,
       fontSize: fontSize,
       transition: 'all 0.1s ease',
       border: isActive ? '3px solid #1864ab' : (isMain ? '2px solid #adb5bd' : '1px solid #ced4da'),

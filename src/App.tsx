@@ -1,6 +1,6 @@
 // src/App.tsx
 import { useState, useEffect, useRef } from 'react'
-import { Button, Container, Title, Text, Group, Paper, Grid, Slider, Badge, Stack, Select, Switch } from '@mantine/core'
+import { Button, Container, Title, Text, Group, Paper, Stack, Select, Switch, SegmentedControl, Divider, Slider } from '@mantine/core'
 import { Routes, Route, Link } from 'react-router-dom'
 import * as Tone from 'tone'
 import { getTransport } from 'tone'
@@ -8,10 +8,11 @@ import { getTransport } from 'tone'
 // --- 節奏模式資料結構 ---
 type SubBeat = {
   time: string // Tone.js time notation (e.g., "0:0:0", "0:0:2") 0 小節, 第 0 拍, 第 0 個十六分音符
-  note: string // 音符高度 (e.g. 空拍時可為'None'或 'Rest')
-  label: string // 視覺標籤 (e.g., "1", "ple", "2")
+  note: string // C2:主拍(較重)、C1:次拍(較輕)、Rest:空拍
+  label: string // 顯示在介面上的標籤(e.g.、 "1", "ple", "2")
   isMain?: boolean // 是否為主拍
   isRest?: boolean // 是否為空拍
+  enabled?: boolean // 用於自定義模式
 }
 
 type PatternType = 'step-step' | 'triple-step' | 'step-hold'
@@ -55,22 +56,44 @@ const PATTERNS: Record<PatternType, Pattern> = {
   }
 }
 
+// 總拍點數：8 拍（每拍四個十六分音符，共 32 個拍點)
+const TOTAL_BEAT_COUNT = 32
+
+// 初始32拍點陣列
+const INITIAL_CUSTOM_BEATS: SubBeat[] = Array.from({ length: TOTAL_BEAT_COUNT }).map((_, index) => {
+  const quarter = Math.floor(index / 4) // 拍數
+  const sixteenth = index % 4           // 1/4拍
+  return {
+    time: `0:${quarter}:${sixteenth}`,
+    note: 'Rest', // 預設為空拍
+    label: sixteenth === 0 ? `${quarter + 1}` : (sixteenth === 2 ? '&' : '.'),
+    isMain: sixteenth === 0,
+    isRest: true,
+    enabled: false
+  }
+})
+
 // --- 節拍練習器組件 ---
+
 function RhythmTrainer() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [bpm, setBpm] = useState(120)
-  const [loop, setLoop] = useState(true) // 循環播放開關
+  const [loop, setLoop] = useState(true)
   const [currentBeatIndex, setCurrentBeatIndex] = useState<number | null>(null)
 
-  // 4個小組，每個小組可選擇不同的模式
+  // 狀態 1: 是否開啟自定義點擊模式 (vs 下拉選單模式)
+  const [isCustomMode, setIsCustomMode] = useState(false)
+  // 狀態 2: 自定義模式下的檢視方式 (分組 vs 序列)
+  const [viewMode, setViewMode] = useState<'grouped' | 'sequence'>('grouped')
+  // 下拉選單模式的狀態
   const [groupPatterns, setGroupPatterns] = useState<PatternType[]>([
-    'triple-step',
-    'triple-step',
-    'triple-step',
-    'triple-step'
+    'triple-step', 'triple-step', 'triple-step', 'triple-step'
   ])
+  // 自定義模式的狀態 (統一為 32 個拍點的扁平陣列)
+  const [customBeats, setCustomBeats] = useState<SubBeat[]>(
+    JSON.parse(JSON.stringify(INITIAL_CUSTOM_BEATS))
+  )
 
-  // 用 ref 存儲 Tone.js 物件
   const partRef = useRef<Tone.Part | null>(null)
   const synthRef = useRef<Tone.NoiseSynth | null>(null)
   const filterRef = useRef<Tone.Filter | null>(null)
@@ -126,30 +149,33 @@ function RhythmTrainer() {
     getTransport().bpm.value = bpm
   }, [bpm])
 
-  // 建立完整的節奏序列 (包含 Pickup Beat)
+  // 建立播放序列
   const buildSequence = () => {
     const events: Array<[string, number]> = []
-
-    // 加入 Pickup Beat (預備拍 'a') - 在第一拍之前的半拍
-    events.push(['0:0:2', -1]) // -1 代表 pickup beat，時間是 0 小節 0 拍的第 2 個八分音符
-
-    // 為每個小組建立拍點
-    groupPatterns.forEach((patternType, groupIndex) => {
-      const pattern = PATTERNS[patternType]
-      const measureOffset = groupIndex * 2 // 每組佔2拍，groupIndex 0->0拍, 1->2拍, 2->4拍, 3->6拍
-
-      pattern.subBeats.forEach((subBeat) => {
-        // 解析相對時間並加上小組偏移
-        const [bar, quarter, eighth] = subBeat.time.split(':').map(Number)
-        const totalQuarters = bar * 4 + quarter + measureOffset + 1 // +1 讓所有拍點往後移一拍，為 pickup beat 留空間
-        const timeStr = `0:${totalQuarters}:${eighth}`
-
-        // 記錄時間與拍點索引
-        const beatIndex = events.length
-        events.push([timeStr, beatIndex])
+    // 加入 Pickup Beat (-1)
+    events.push(['0:0:2', -1])
+    if (isCustomMode) {
+      customBeats.forEach((beat, index) => {
+        if (beat.enabled) {
+          const quarter = Math.floor(index / 4) + 1
+          const sixteenth = index % 4
+          const timeStr = `0:${quarter}:${sixteenth}`
+          events.push([timeStr, index])
+        }
       })
-    })
-
+    } else {
+      groupPatterns.forEach((patternType, groupIndex) => {
+        const pattern = PATTERNS[patternType]
+        const measureOffset = groupIndex * 2
+        pattern.subBeats.forEach((subBeat) => {
+          const [bar, quarter, eighth] = subBeat.time.split(':').map(Number)
+          const totalQuarters = bar * 4 + quarter + measureOffset + 1
+          const timeStr = `0:${totalQuarters}:${eighth}`
+          const absoluteIndex = (groupIndex * 8) + (quarter * 4) + eighth
+          events.push([timeStr, absoluteIndex])
+        })
+      })
+    }
     return events
   }
 
@@ -208,7 +234,7 @@ function RhythmTrainer() {
           const pattern = PATTERNS[groupPatterns[groupIndex]]
           const subBeat = pattern.subBeats[subBeatIndex]
 
-          if(!subBeat.isRest) {          
+          if (!subBeat.isRest) {
             // 1. 發出聲音 - 主拍較大聲，子拍較小聲
             if (synthRef.current) {
               if (subBeat.isMain) {
@@ -254,123 +280,183 @@ function RhythmTrainer() {
   return (
     <Container size="lg" py="xl">
       <Title order={2} mb="lg">Swing 節拍練習器</Title>
-
       <Paper shadow="xs" p="md" withBorder>
         <Stack gap="lg">
           {/* 控制區 */}
           <Group justify="space-between" align="flex-start" wrap="wrap">
             <Group>
-              <Button
-                color={isPlaying ? "red" : "green"}
-                onClick={togglePlay}
-                size="lg"
-              >
-                {isPlaying ? "停止 (Stop)" : "開始 (Start)"}
+              <Button color={isPlaying ? "red" : "green"} onClick={togglePlay} size="lg">
+                {isPlaying ? "停止" : "開始"}
               </Button>
               <Switch
-                label="循環播放"
+                label="循環"
                 checked={loop}
-                onChange={(event) => setLoop(event.currentTarget.checked)}
+                onChange={(e) => setLoop(e.currentTarget.checked)}
                 disabled={isPlaying}
               />
             </Group>
-            <Stack gap={0} style={{ flex: 1, minWidth: '250px', maxWidth: '300px' }}>
+            <Stack gap={0} style={{ flex: 1, minWidth: '250px' }}>
               <Text size="sm">BPM: {bpm}</Text>
-              <Slider
-                value={bpm}
-                onChange={setBpm}
-                min={60}
-                max={200}
-                disabled={isPlaying}
-              />
+              <Slider value={bpm} onChange={setBpm} min={60} max={200} disabled={isPlaying} />
             </Stack>
           </Group>
-
-          {/* Pickup Beat 顯示區 */}
-          <Paper p="sm" withBorder bg="yellow.1">
-            <Text size="xs" c="dimmed" mb="xs" ta="center">Pickup Beat</Text>
-
-            <Group gap="md" justify="center" wrap="nowrap">
-              {/* Pickup beat 'a' */}
+          <Divider />
+          {/* 模式控制區：切換 Pattern/Custom 以及 Custom 下的 View Mode */}
+          <Group justify="space-between" align="center">
+            <Switch
+              label={<Text fw={700}>啟用自定義編輯 (Custom Mode)</Text>}
+              checked={isCustomMode}
+              onChange={(e) => setIsCustomMode(e.currentTarget.checked)}
+              disabled={isPlaying}
+              size="md"
+            />
+            {isCustomMode && (
+              <SegmentedControl
+                value={viewMode}
+                onChange={(value) => setViewMode(value as 'grouped' | 'sequence')}
+                data={[
+                  { label: '分組檢視 (Groups)', value: 'grouped' },
+                  { label: '序列檢視 (Sequence)', value: 'sequence' },
+                ]}
+                disabled={isPlaying}
+              />
+            )}
+          </Group>
+          {/* 視覺化與編輯區 */}
+          <Paper p="md" withBorder bg="gray.0">
+            {/* Pickup Beat (永遠顯示) */}
+            <Group justify="center" mb="md">
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <BeatIndicator
-                  isActive={currentBeatIndex === -1}
-                  label="a"
-                  isMain={false}
-                />
+                <Text size="xs" c="dimmed" mb={4}>Pickup</Text>
+                <BeatIndicator isActive={currentBeatIndex === -1} label="a" isMain={false} />
               </div>
-
-              {/* 視覺化顯示區：4個小組，每組可選擇模式 */}
-              {groupPatterns.map((patternType, groupIndex) => {
-                const pattern = PATTERNS[patternType]
-
-                // 計算此 group 的拍點在整體序列中的索引範圍
-                let startBeatIndex = 1 // 跳過 pickup beat (index 0)
-                for (let i = 0; i < groupIndex; i++) {
-                  startBeatIndex += PATTERNS[groupPatterns[i]].subBeats.length
-                }
-
-                return (
-                  <div key={groupIndex} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <Text size="xs" fw={500} mb="xs">Group {groupIndex + 1}</Text>
-                    <Group gap="xs" wrap="nowrap">
-                      {pattern.subBeats.map((subBeat, subIndex) => {
-                        const beatIndex = startBeatIndex + subIndex
-                        return (
-                          <BeatIndicator
-                            key={subIndex}
-                            isActive={currentBeatIndex === beatIndex}
-                            label={subBeat.label}
-                            isMain={subBeat.isMain}
-                            isRest={subBeat.isRest}
-                          />
-                        )
-                      })}
-                    </Group>
-                  </div>
-                )
-              })}
             </Group>
+            {/* 主要節奏顯示區 - 根據模式條件渲染 */}
+            {isCustomMode && viewMode === 'sequence' ? (
+              <Group gap="xs" justify="center" style={{ maxWidth: '100%' }}>
+                {customBeats.map((beat, index) => {
+                  // (移除未用 isMeasureStart)
+                  const isBeatStart = index % 4 === 0
+                  return (
+                    <div key={index} style={{ display: 'flex', alignItems: 'center' }} onClick={() => {
+                      if (!isPlaying) {
+                        setCustomBeats(prev => {
+                          const newBeats = [...prev]
+                          const b = { ...newBeats[index] }
+                          b.enabled = !b.enabled
+                          if (b.enabled) {
+                            b.note = b.isMain ? 'C2' : 'C1'
+                            b.isRest = false
+                          } else {
+                            b.note = 'Rest'
+                            b.isRest = true
+                          }
+                          newBeats[index] = b
+                          return newBeats
+                        })
+                      }
+                    }}>
+                      {index > 0 && index % 8 === 0 && <div style={{ width: 10 }} />}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        {isBeatStart && <Text size="10px" c="dimmed" style={{ marginBottom: 2 }}>{Math.floor(index / 4) + 1}</Text>}
+                        <BeatIndicator
+                          isActive={currentBeatIndex === index}
+                          label={beat.label}
+                          isMain={beat.isMain}
+                          isRest={!beat.enabled}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </Group>
+            ) : (
+              <Group gap="xl" justify="center" wrap="wrap">
+                {[0, 1, 2, 3].map((groupIndex) => {
+                  let currentGroupBeats: SubBeat[] = []
+                  let startIndex = 0
+                  if (isCustomMode) {
+                    startIndex = groupIndex * 8
+                    currentGroupBeats = customBeats.slice(startIndex, startIndex + 8)
+                  } else {
+                    currentGroupBeats = PATTERNS[groupPatterns[groupIndex]].subBeats
+                  }
+                  return (
+                    <Stack key={groupIndex} align="center" gap="xs">
+                      <Text size="sm" fw={600} c="dimmed">Group {groupIndex + 1}</Text>
+                      <Group gap={4}>
+                        {currentGroupBeats.map((beat, subIndex) => {
+                          const realIndex = isCustomMode ? startIndex + subIndex : -999
+                          const isActive = isCustomMode
+                            ? currentBeatIndex === realIndex
+                            : currentBeatIndex === (groupIndex * 8) + (parseInt(beat.time.split(':')[1]) * 4) + parseInt(beat.time.split(':')[2])
+                          return (
+                            <div key={subIndex} onClick={isCustomMode ? () => {
+                              if (!isPlaying) {
+                                setCustomBeats(prev => {
+                                  const newBeats = [...prev]
+                                  const b = { ...newBeats[realIndex] }
+                                  b.enabled = !b.enabled
+                                  if (b.enabled) {
+                                    b.note = b.isMain ? 'C2' : 'C1'
+                                    b.isRest = false
+                                  } else {
+                                    b.note = 'Rest'
+                                    b.isRest = true
+                                  }
+                                  newBeats[realIndex] = b
+                                  return newBeats
+                                })
+                              }
+                            } : undefined} style={{ display: 'inline-block' }}>
+                              <BeatIndicator
+                                isActive={isActive}
+                                label={beat.label}
+                                isMain={beat.isMain}
+                                isRest={isCustomMode ? !beat.enabled : beat.isRest}
+                              />
+                            </div>
+                          )
+                        })}
+                      </Group>
+                      {!isCustomMode && (
+                        <Select
+                          size="xs"
+                          value={groupPatterns[groupIndex]}
+                          onChange={(val) => {
+                            const newP = [...groupPatterns]
+                            newP[groupIndex] = val as PatternType
+                            setGroupPatterns(newP)
+                          }}
+                          data={[
+                            { value: 'step-step', label: 'Step Step' },
+                            { value: 'triple-step', label: 'Triple Step' },
+                            { value: 'step-hold', label: 'Step Hold' }
+                          ]}
+                          disabled={isPlaying}
+                        />
+                      )}
+                    </Stack>
+                  )
+                })}
+              </Group>
+            )}
           </Paper>
-
-          {/* 模式選擇區 */}
-          <Grid gutter="md">
-            {groupPatterns.map((patternType, groupIndex) => (
-              <Grid.Col span={{ base: 12, sm: 6, md: 3 }} key={groupIndex}>
-                <Paper p="sm" withBorder bg="gray.0">
-                  <Text size="sm" fw={600} mb="xs" ta="center">Group {groupIndex + 1}</Text>
-                  <Select
-                    value={patternType}
-                    onChange={(value) => {
-                      const newPatterns = [...groupPatterns]
-                      newPatterns[groupIndex] = value as PatternType
-                      setGroupPatterns(newPatterns)
-                    }}
-                    data={[
-                      { value: 'step-step', label: 'Step Step' },
-                      { value: 'triple-step', label: 'Triple Step' },
-                      { value: 'step-hold', label: 'Step Hold'}
-                    ]}
-                    disabled={isPlaying}
-                  />
-                  <Badge
-                    mt="sm"
-                    variant="light"
-                    color={patternType === 'triple-step' ? 'blue' : 'green'}
-                    fullWidth
-                  >
-                    {PATTERNS[patternType].name}
-                  </Badge>
-                </Paper>
-              </Grid.Col>
-            ))}
-          </Grid>
+          {/* 底部說明 */}
+          <Paper p="xs" bg="blue.0">
+            <Text size="xs" ta="center" c="blue.8">
+              {isCustomMode
+                ? (viewMode === 'sequence' ? "點擊上方 1-8 拍的任意圓點來編輯節奏" : "點擊各群組內的圓點來編輯節奏")
+                : "選擇下拉選單來組合標準 Swing 節奏"}
+            </Text>
+          </Paper>
         </Stack>
       </Paper>
-
-      <Link to="/">
-        <Button variant="subtle" mt="xl">回到首頁</Button>
-      </Link>
+      <Group mt="xl" justify="center">
+        <Link to="/">
+          <Button variant="subtle">回到首頁</Button>
+        </Link>
+      </Group>
     </Container>
   )
 }
@@ -384,7 +470,7 @@ function BeatIndicator({ isActive, label, isMain = true, isRest = false }: { isA
   const activeColor = isRest ? '#fa5252' : (isMain ? '#228be6' : '#4dabf7') // 空拍被點亮時特殊色
 
   const textColor = isActive ? 'white' : (isRest ? '#adb5bd' : (isMain ? '#495057' : '#868e96'))
-  const fontWeight = isRest ? 'normal' : (isMain ? 'bold' : 'normal');
+  const fontWeight = isRest ? 'normal' : (isMain ? 'bold' : 'normal')
 
   return (
     <div style={{

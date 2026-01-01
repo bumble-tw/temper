@@ -37,6 +37,7 @@ function RhythmTrainer() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [bpm, setBpm] = useState(120)
   const [loop, setLoop] = useState(true)
+  const [volume, setVolume] = useState(-10) // 音量控制 (dB)
   const [currentBeatIndex, setCurrentBeatIndex] = useState<number | null>(null)
   // 自定義模式的狀態 (32 個拍點的扁平陣列)
   const [customBeats, setCustomBeats] = useState<SubBeat[]>(
@@ -69,9 +70,10 @@ function RhythmTrainer() {
 
     // Transport 全局時鐘,控制 BPM 和播放/停止。
     // 設定 Swing (搖擺感),數值 0-1,0是直拍,1是完全三連音
+    // 0.1 產生適中的搖擺感，讓 tri-ple-step 聽起來更自然
     getTransport().set({
-      swing: 0.2,
-      swingSubdivision: "8n" // 設定以八分音符為基礎做 swing
+      swing: 0.09,
+      swingSubdivision: "16n" // 設定以十六分音符為基礎做 swing，更適合 triple step
     })
 
     return () => {
@@ -97,6 +99,13 @@ function RhythmTrainer() {
     // 當 BPM 改變時更新
     getTransport().bpm.value = bpm
   }, [bpm])
+
+  useEffect(() => {
+    // 當音量改變時更新 synth 的基礎音量
+    if (synthRef.current) {
+      synthRef.current.volume.value = volume
+    }
+  }, [volume])
 
   // 建立播放序列
   const buildSequence = () => {
@@ -129,9 +138,9 @@ function RhythmTrainer() {
 
         // 處理 Pickup Beat
         if (beatIndex === -1) {
-          // 主拍 - 較大聲的拍掌
+          // 主拍 - 較大聲的拍掌 (基礎音量 + 2 dB)
           if (synthRef.current) {
-            synthRef.current.volume.setValueAtTime(-8, time)
+            synthRef.current.volume.setValueAtTime(volume + 2, time)
             synthRef.current.triggerAttackRelease("16n", time)
           }
           Tone.Draw.schedule(() => {
@@ -144,15 +153,17 @@ function RhythmTrainer() {
         const beat = customBeats[beatIndex]
 
         if (beat && beat.enabled) {
-          // 1. 發出聲音 - 主拍較大聲，子拍較小聲
+          // 1. 發出聲音 - 主拍較大聲，子拍較小聲（相對於基礎音量的偏移）
           if (synthRef.current) {
+            let volumeOffset = 0
             if (beat.isMain) {
-              // 第一拍更大聲、更清脆
-              synthRef.current.volume.setValueAtTime(beat.note === 'C2' ? -6 : -10, time)
+              // 主拍：C2 更大聲 (+4 dB)，其他主拍 (0 dB)
+              volumeOffset = beat.note === 'C2' ? 4 : 0
             } else {
-              // 子拍較小聲、較柔和
-              synthRef.current.volume.setValueAtTime(-14, time)
+              // 子拍較小聲 (-4 dB)
+              volumeOffset = -4
             }
+            synthRef.current.volume.setValueAtTime(volume + volumeOffset, time)
             synthRef.current.triggerAttackRelease("16n", time)
           }
 
@@ -203,9 +214,26 @@ function RhythmTrainer() {
                 disabled={isPlaying}
               />
             </Group>
-            <Stack gap={0} style={{ flex: 1, minWidth: '250px' }}>
-              <Text size="sm">BPM: {bpm}</Text>
-              <Slider value={bpm} onChange={setBpm} min={60} max={200} disabled={isPlaying} />
+            <Stack gap="md" style={{ flex: 1, minWidth: '250px' }}>
+              <Stack gap={0}>
+                <Text size="sm">BPM: {bpm}</Text>
+                <Slider value={bpm} onChange={setBpm} min={60} max={200} disabled={isPlaying} />
+              </Stack>
+              <Stack gap={0}>
+                <Text size="sm">音量: {volume} dB</Text>
+                <Slider
+                  value={volume}
+                  onChange={setVolume}
+                  min={-30}
+                  max={0}
+                  step={1}
+                  marks={[
+                    { value: -30, label: '小' },
+                    { value: -15, label: '中' },
+                    { value: 0, label: '大' }
+                  ]}
+                />
+              </Stack>
             </Stack>
           </Group>
           <Divider />

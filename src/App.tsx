@@ -1,6 +1,6 @@
 // src/App.tsx
 import { useState, useEffect, useRef } from 'react'
-import { Button, Container, Title, Text, Group, Paper, Stack, Switch, Divider, Slider, Select, TextInput, Checkbox, Collapse, Badge, Pagination, Loader } from '@mantine/core'
+import { Button, Container, Title, Text, Group, Paper, Stack, Switch, Divider, Slider, Select, TextInput, Checkbox, Collapse, Badge, Pagination, Loader, Modal, Center } from '@mantine/core'
 import { Routes, Route, Link } from 'react-router-dom'
 import * as Tone from 'tone'
 import { getTransport } from 'tone'
@@ -36,10 +36,18 @@ const TOTAL_BEAT_COUNT = 32
 const INITIAL_CUSTOM_BEATS: SubBeat[] = Array.from({ length: TOTAL_BEAT_COUNT }).map((_, index) => {
   const quarter = Math.floor(index / 4) // 拍數
   const sixteenth = index % 4           // 1/4拍
+
+  // 標籤：1 e & a
+  let label = ''
+  if (sixteenth === 0) label = `${quarter + 1}` // 1, 2, 3...
+  else if (sixteenth === 1) label = 'e'
+  else if (sixteenth === 2) label = '&'
+  else label = 'a'
+
   return {
     time: `0:${quarter}:${sixteenth}`,
     note: 'Rest', // 預設為空拍
-    label: sixteenth === 0 ? `${quarter + 1}` : (sixteenth === 2 ? '&' : '.'),
+    label,
     isMain: sixteenth === 0,
     isRest: true,
     enabled: false
@@ -105,7 +113,6 @@ function RhythmTrainer() {
   const [customPresets, setCustomPresets] = useState<Preset[]>([])
   const [selectedPresetId, setSelectedPresetId] = useState<string>('')
   const [newPresetName, setNewPresetName] = useState('')
-  const [usePickup, setUsePickup] = useState(true) // 是否使用 pickup beat
   const [showManagePresets, setShowManagePresets] = useState(false) // 顯示管理預設區域
   const [currentPage, setCurrentPage] = useState(1) // 當前頁碼
   const PRESETS_PER_PAGE = 5 // 每頁顯示數量
@@ -116,6 +123,7 @@ function RhythmTrainer() {
   const [recordedClaps, setRecordedClaps] = useState<number[]>([]) // 錄製到的掌聲拍點索引
   const [quizResult, setQuizResult] = useState<QuizEvaluation | null>(null) // 測驗結果
   const [_quizHistory, setQuizHistory] = useState<QuizRecord[]>([]) // 測驗歷史（未來用於顯示歷史記錄）
+  const [countdown, setCountdown] = useState<number | null>(null) // 倒數計時（3, 2, 1）
 
   // 切換時間流動顯示位置
   const toggleTimePosition = (index: number) => {
@@ -135,6 +143,7 @@ function RhythmTrainer() {
   const timePartRef = useRef<Tone.Part | null>(null) // 時間追蹤器（視覺）
   const synthRef = useRef<Tone.NoiseSynth | null>(null) // 掌聲合成器
   const filterRef = useRef<Tone.Filter | null>(null) // 掌聲合成器
+  const countdownSynthRef = useRef<Tone.Synth | null>(null) // 倒數提示音合成器
 
   // 測驗模式相關 refs
   const micSetupRef = useRef<MicrophoneSetup | null>(null) // 麥克風設置
@@ -184,6 +193,19 @@ function RhythmTrainer() {
       }
     }).connect(filterRef.current)
 
+    // 倒數提示音合成器（清脆的嗶聲）
+    countdownSynthRef.current = new Tone.Synth({
+      oscillator: {
+        type: "sine"
+      },
+      envelope: {
+        attack: 0.005,
+        decay: 0.1,
+        sustain: 0,
+        release: 0.1
+      }
+    }).toDestination()
+
     // Transport 全局時鐘,控制 BPM 和播放/停止。
     // 設定 Swing (搖擺感),數值 0-1,0是直拍,1是完全三連音
     // 0.1 產生適中的搖擺感，讓 tri-ple-step 聽起來更自然
@@ -207,6 +229,10 @@ function RhythmTrainer() {
       if (filterRef.current) {
         filterRef.current.dispose()
         filterRef.current = null
+      }
+      if (countdownSynthRef.current) {
+        countdownSynthRef.current.dispose()
+        countdownSynthRef.current = null
       }
     }
   }, [])
@@ -233,7 +259,6 @@ function RhythmTrainer() {
     }
     setCustomBeats(JSON.parse(JSON.stringify(INITIAL_CUSTOM_BEATS)))
     setSelectedPresetId('')
-    setUsePickup(true) // 重置為預設啟用
   }
 
   // 生成隨機考題（簡單難度）
@@ -262,7 +287,6 @@ function RhythmTrainer() {
     selectedPositions.forEach(pos => enableBeat(newBeats, pos))
 
     setCustomBeats(newBeats)
-    setUsePickup(false) // 簡單考題不使用 pickup beat
     setSelectedPresetId('') // 清除選擇的預設
   }
 
@@ -296,15 +320,6 @@ function RhythmTrainer() {
         enableBeat(newBeats, aPos)
       }
       // 30% 機率：空拍（什麼都不做）
-    }
-
-    // 50% 機率使用 pickup beat
-    const hasPickup = Math.random() < 0.5
-    setUsePickup(hasPickup)
-
-    // 如果有 pickup beat，確保第一個四分音符一定啟用（pickup 必須連著四分音符）
-    if (hasPickup) {
-      enableBeat(newBeats, 0)
     }
 
     setCustomBeats(newBeats)
@@ -360,8 +375,6 @@ function RhythmTrainer() {
     }
 
     setCustomBeats(newBeats)
-    // 75% 機率使用 pickup beat
-    setUsePickup(Math.random() < 0.75)
     setSelectedPresetId('')
   }
 
@@ -424,8 +437,6 @@ function RhythmTrainer() {
     }
 
     setCustomBeats(newBeats)
-    // 90% 機率使用 pickup beat
-    setUsePickup(Math.random() < 0.9)
     setSelectedPresetId('')
   }
 
@@ -452,7 +463,6 @@ function RhythmTrainer() {
 
     if (preset) {
       setCustomBeats(JSON.parse(JSON.stringify(preset.beats)))
-      setUsePickup(preset.usePickup !== undefined ? preset.usePickup : true)
       setSelectedPresetId(presetId)
     }
   }
@@ -468,7 +478,6 @@ function RhythmTrainer() {
       id: `custom-${Date.now()}`,
       name: newPresetName.trim(),
       beats: JSON.parse(JSON.stringify(customBeats)),
-      usePickup: usePickup,
       isCustom: true
     }
 
@@ -513,10 +522,6 @@ function RhythmTrainer() {
   // 建立播放序列（只包含啟用的拍點）
   const buildSequence = () => {
     const events: Array<[string, number]> = []
-    // 加入 Pickup Beat (-1) - 只在啟用時
-    if (usePickup) {
-      events.push(['0:0:2', -1])
-    }
     customBeats.forEach((beat, index) => {
       if (beat.enabled) {
         const quarter = Math.floor(index / 4) + 1
@@ -541,7 +546,44 @@ function RhythmTrainer() {
     return events
   }
 
+  // --- 倒數函數 ---
+
+  // 通用倒數函數（帶聲音）
+  const performCountdown = async () => {
+    // 確保 Tone.js 已啟動
+    await Tone.start()
+
+    // 倒數 3
+    setCountdown(3)
+    if (countdownSynthRef.current) {
+      countdownSynthRef.current.triggerAttackRelease('C5', '0.1')
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000))
+
+    // 倒數 2
+    setCountdown(2)
+    if (countdownSynthRef.current) {
+      countdownSynthRef.current.triggerAttackRelease('C5', '0.1')
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000))
+
+    // 倒數 1（較高音，表示即將開始）
+    setCountdown(1)
+    if (countdownSynthRef.current) {
+      countdownSynthRef.current.triggerAttackRelease('C6', '0.1')
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000))
+
+    setCountdown(null)
+  }
+
   // --- 測驗模式函數 ---
+
+  // 開始測驗（帶倒數）
+  const startQuizWithCountdown = async () => {
+    await performCountdown()
+    await startQuiz()
+  }
 
   // 開始測驗
   const startQuiz = async () => {
@@ -568,20 +610,8 @@ function RhythmTrainer() {
       // 6. 設定播放邏輯（前 8 拍播放，後 8 拍靜音）
       partRef.current = new Tone.Part((time, beatInfo) => {
         const beatIndex = beatInfo as number
-
-        // 處理 Pickup Beat
-        if (beatIndex === -1) {
-          if (synthRef.current) {
-            synthRef.current.volume.setValueAtTime(volume + 2, time)
-            synthRef.current.triggerAttackRelease("16n", time)
-          }
-          Tone.Draw.schedule(() => {
-            setCurrentBeatIndex(-1)
-          }, time)
-          return
-        }
-
         const beat = customBeats[beatIndex]
+
         if (beat && beat.enabled) {
           // 發出聲音
           if (synthRef.current) {
@@ -604,6 +634,21 @@ function RhythmTrainer() {
 
       partRef.current.loop = false  // 測驗模式不循環
 
+      // 特例：如果第 8 拍的 'a' (index 31) 有啟用，在第一次播放時加入 pickup
+      if (customBeats[31]?.enabled) {
+        getTransport().scheduleOnce((time) => {
+          const beat = customBeats[31]
+          if (synthRef.current && beat) {
+            const volumeOffset = -4 // 子拍音量
+            synthRef.current.volume.setValueAtTime(volume + volumeOffset, time)
+            synthRef.current.triggerAttackRelease("16n", time)
+          }
+          Tone.Draw.schedule(() => {
+            setCurrentBeatIndex(31)
+          }, time)
+        }, "0:0:3") // 在第 1 拍之前播放（pickup）
+      }
+
       // 7. 設定時間追蹤器
       timePartRef.current = new Tone.Part((time, beatInfo) => {
         const beatIndex = beatInfo as number
@@ -613,6 +658,15 @@ function RhythmTrainer() {
       }, timeSequence).start(0)
 
       timePartRef.current.loop = false
+
+      // 特例：時間追蹤器的視覺回饋
+      if (customBeats[31]?.enabled) {
+        getTransport().scheduleOnce((time) => {
+          Tone.Draw.schedule(() => {
+            setCurrentTimeIndex(31)
+          }, time)
+        }, "0:0:3")
+      }
 
       // 8. 設定階段轉換時間點
       // 8 拍後開始錄音（"0:9:0" 表示第 9 拍開始，因為包含 pickup beat）
@@ -633,6 +687,7 @@ function RhythmTrainer() {
 
       // 9. 開始播放
       setQuizPhase('playing')
+      getTransport().position = 0 // 確保從頭開始
       getTransport().start()
       setIsPlaying(true)
     } catch (error) {
@@ -718,7 +773,6 @@ function RhythmTrainer() {
         ? (BUILT_IN_PRESETS.find(p => p.id === selectedPresetId)?.name || customPresets.find(p => p.id === selectedPresetId)?.name || 'Custom')
         : 'Custom',
       bpm,
-      usePickup,
       pattern: JSON.parse(JSON.stringify(customBeats)),
       evaluation
     }
@@ -735,6 +789,7 @@ function RhythmTrainer() {
   const resetQuiz = () => {
     // 停止播放
     getTransport().stop()
+    getTransport().position = 0 // 重置位置
     getTransport().cancel(0)
 
     // 清理 Parts
@@ -765,8 +820,8 @@ function RhythmTrainer() {
     // 測驗模式分支
     if (isQuizMode) {
       if (quizPhase === 'idle' || quizPhase === 'result') {
-        // 開始新測驗
-        await startQuiz()
+        // 開始新測驗（帶倒數）
+        await startQuizWithCountdown()
       } else {
         // 停止測驗
         resetQuiz()
@@ -776,7 +831,9 @@ function RhythmTrainer() {
 
     // 原有練習模式邏輯
     if (!isPlaying) {
-      await Tone.start() // 瀏覽器要求必須有互動才能開始聲音
+      // 先執行倒數
+      await performCountdown()
+
       console.log('Tone.js started, context state:', Tone.context.state)
 
       const sequence = buildSequence()
@@ -786,21 +843,6 @@ function RhythmTrainer() {
       partRef.current = new Tone.Part((time, beatInfo) => {
         // 修正：beatInfo 收到的直接就是我們存入的 value (也就是 beatIndex 數字)，不需要解構
         const beatIndex = beatInfo as number
-
-        // 處理 Pickup Beat
-        if (beatIndex === -1) {
-          // 主拍 - 較大聲的拍掌 (基礎音量 + 2 dB)
-          if (synthRef.current) {
-            synthRef.current.volume.setValueAtTime(volume + 2, time)
-            synthRef.current.triggerAttackRelease("16n", time)
-          }
-          Tone.Draw.schedule(() => {
-            setCurrentBeatIndex(-1)
-          }, time)
-          return
-        }
-
-        // 取得拍點資訊
         const beat = customBeats[beatIndex]
 
         if (beat && beat.enabled) {
@@ -828,9 +870,25 @@ function RhythmTrainer() {
       // 設定循環
       if (loop) {
         partRef.current.loop = true
-        partRef.current.loopEnd = "0:9:0" // 9 拍 (包含 pickup beat)
+        partRef.current.loopStart = "0:1:0" // 從第 1 拍開始循環
+        partRef.current.loopEnd = "0:9:0"   // 到第 9 拍結束（正好 8 拍）
       } else {
         partRef.current.loop = false
+      }
+
+      // 特例：如果第 8 拍的 'a' (index 31) 有啟用，在第一次播放時加入 pickup
+      if (customBeats[31]?.enabled) {
+        getTransport().scheduleOnce((time) => {
+          const beat = customBeats[31]
+          if (synthRef.current && beat) {
+            const volumeOffset = -4 // 子拍音量
+            synthRef.current.volume.setValueAtTime(volume + volumeOffset, time)
+            synthRef.current.triggerAttackRelease("16n", time)
+          }
+          Tone.Draw.schedule(() => {
+            setCurrentBeatIndex(31)
+          }, time)
+        }, "0:0:3") // 在第 1 拍之前播放（pickup）
       }
 
       // 建立時間追蹤器（顯示所有拍點的時間流動）
@@ -847,15 +905,28 @@ function RhythmTrainer() {
       // 設定時間追蹤器的循環
       if (loop) {
         timePartRef.current.loop = true
-        timePartRef.current.loopEnd = "0:9:0" // 8 拍 + 1 拍緩衝
+        timePartRef.current.loopStart = "0:1:0" // 從第 1 拍開始循環
+        timePartRef.current.loopEnd = "0:9:0"   // 到第 9 拍結束（正好 8 拍）
       } else {
         timePartRef.current.loop = false
       }
 
+      // 特例：如果第 8 拍的 'a' 有啟用，在第一次播放時也要顯示視覺回饋
+      if (customBeats[31]?.enabled) {
+        getTransport().scheduleOnce((time) => {
+          Tone.Draw.schedule(() => {
+            setCurrentTimeIndex(31)
+          }, time)
+        }, "0:0:3")
+      }
+
+      getTransport().position = 0 // 確保從頭開始
       getTransport().start()
       setIsPlaying(true)
     } else {
       getTransport().stop()
+      getTransport().position = 0 // 重置位置
+      getTransport().cancel(0) // 清除所有排程事件（包括 scheduleOnce）
       if (partRef.current) {
         partRef.current.stop()
         partRef.current.dispose()
@@ -1221,25 +1292,6 @@ function RhythmTrainer() {
 
           {/* 視覺化與編輯區 */}
           <Paper p="md" withBorder bg="gray.0">
-            {/* Pickup Beat (可點擊切換) */}
-            <Group justify="center" mb="md">
-              <div
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: isPlaying ? 'default' : 'pointer' }}
-                onClick={() => {
-                  if (!isPlaying) {
-                    setUsePickup(!usePickup)
-                  }
-                }}
-              >
-                <Text size="xs" c="dimmed" mb={4}>Pickup</Text>
-                <BeatIndicator
-                  isActive={currentBeatIndex === -1}
-                  label="a"
-                  isMain={false}
-                  isRest={!usePickup}
-                />
-              </div>
-            </Group>
             {/* 主要節奏顯示區 - 序列檢視 */}
             <Group gap="xs" justify="center" style={{ maxWidth: '100%' }}>
               {customBeats.map((beat, index) => {
@@ -1304,6 +1356,22 @@ function RhythmTrainer() {
           <Button variant="subtle">回到首頁</Button>
         </Link>
       </Group>
+
+      {/* 測驗倒數 Modal */}
+      <Modal
+        opened={countdown !== null}
+        onClose={() => {}}
+        withCloseButton={false}
+        centered
+        size="lg"
+        padding="xl"
+      >
+        <Center style={{ minHeight: '200px' }}>
+          <Title size={120} c="blue">
+            {countdown}
+          </Title>
+        </Center>
+      </Modal>
     </Container>
   )
 }

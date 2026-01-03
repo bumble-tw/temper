@@ -36,7 +36,6 @@ export type QuizRecord = {
   timestamp: number           // 測驗時間戳
   patternName: string         // 節奏模式名稱（或 "Custom"）
   bpm: number                 // 當時的 BPM
-  usePickup: boolean          // 是否使用 Pickup Beat
   pattern: SubBeat[]          // 測驗的節奏模式（完整備份）
   evaluation: QuizEvaluation  // 評估結果
 }

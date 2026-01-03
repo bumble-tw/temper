@@ -47,11 +47,3 @@ export type QuizHistoryStorage = {
   records: QuizRecord[]       // 測驗記錄陣列
   maxRecords: number          // 最大保留數量
 }
-
-// Meyda 音頻特徵（從 Meyda 類型擴展）
-export interface AudioFeatures {
-  rms: number                 // Root Mean Square - 音量強度
-  spectralFlux: number        // 頻譜變化率
-  zcr: number                 // Zero Crossing Rate - 過零率
-  spectralCentroid: number    // 頻譜重心
-}

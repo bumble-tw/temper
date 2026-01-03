@@ -7,7 +7,7 @@ import { getTransport } from 'tone'
 
 // 測驗模式相關導入
 import type { QuizPhase, QuizEvaluation, QuizRecord } from './types/quiz'
-import { initMicrophone, isClapDetected, getBeatIndexFromTime, cleanupMicrophone, type MicrophoneSetup } from './utils/audioDetection'
+import { initMicrophone, startClapDetection, stopClapDetection, getBeatIndexFromTime, cleanupMicrophone, type MicrophoneSetup } from './utils/audioDetection'
 import { evaluateQuiz } from './utils/quizEvaluation'
 import { loadQuizHistory, saveQuizRecord } from './utils/quizStorage'
 
@@ -226,6 +226,11 @@ function RhythmTrainer() {
   // 清除所有節奏
   const clearPattern = () => {
     if (isPlaying) return
+    // 如果在測驗模式且有結果，清除結果
+    if (isQuizMode && quizPhase === 'result') {
+      setQuizPhase('idle')
+      setQuizResult(null)
+    }
     setCustomBeats(JSON.parse(JSON.stringify(INITIAL_CUSTOM_BEATS)))
     setSelectedPresetId('')
     setUsePickup(true) // 重置為預設啟用
@@ -235,6 +240,11 @@ function RhythmTrainer() {
   // 簡單：只有四分音符位置，有空拍，可能只有少數拍點
   const generateEasyQuestion = () => {
     if (isPlaying) return
+    // 如果在測驗模式且有結果，清除結果
+    if (isQuizMode && quizPhase === 'result') {
+      setQuizPhase('idle')
+      setQuizResult(null)
+    }
 
     const newBeats = JSON.parse(JSON.stringify(INITIAL_CUSTOM_BEATS)) as SubBeat[]
 
@@ -261,6 +271,11 @@ function RhythmTrainer() {
   // 'a' 拍（ple）一定會連著四分音符，不會單獨出現
   const generateMediumQuestion = () => {
     if (isPlaying) return
+    // 如果在測驗模式且有結果，清除結果
+    if (isQuizMode && quizPhase === 'result') {
+      setQuizPhase('idle')
+      setQuizResult(null)
+    }
 
     const newBeats = JSON.parse(JSON.stringify(INITIAL_CUSTOM_BEATS)) as SubBeat[]
 
@@ -300,6 +315,11 @@ function RhythmTrainer() {
   // 困難：使用 'e' 和 'a' 位置（不使用 '&' 拍），較密集的組合，經常有 pickup beat
   const generateHardQuestion = () => {
     if (isPlaying) return
+    // 如果在測驗模式且有結果，清除結果
+    if (isQuizMode && quizPhase === 'result') {
+      setQuizPhase('idle')
+      setQuizResult(null)
+    }
 
     const newBeats = JSON.parse(JSON.stringify(INITIAL_CUSTOM_BEATS)) as SubBeat[]
 
@@ -349,6 +369,11 @@ function RhythmTrainer() {
   // 地獄：極度密集，複雜切分音，幾乎總是有 pickup beat
   const generateHellQuestion = () => {
     if (isPlaying) return
+    // 如果在測驗模式且有結果，清除結果
+    if (isQuizMode && quizPhase === 'result') {
+      setQuizPhase('idle')
+      setQuizResult(null)
+    }
 
     const newBeats = JSON.parse(JSON.stringify(INITIAL_CUSTOM_BEATS)) as SubBeat[]
 
@@ -416,6 +441,11 @@ function RhythmTrainer() {
   // 載入預設
   const loadPreset = (presetId: string) => {
     if (isPlaying) return
+    // 如果在測驗模式且有結果，清除結果
+    if (isQuizMode && quizPhase === 'result') {
+      setQuizPhase('idle')
+      setQuizResult(null)
+    }
 
     const allPresets = [...BUILT_IN_PRESETS, ...customPresets]
     const preset = allPresets.find(p => p.id === presetId)
@@ -619,31 +649,26 @@ function RhythmTrainer() {
     console.log('開始錄音偵測')
     recordingStartTimeRef.current = Tone.Transport.seconds
 
-    // 設定 Meyda 回調函數
-    const analyzer = micSetupRef.current.analyzer as any
-    if (analyzer) {
-      analyzer.callback = (features: any) => {
-        if (isClapDetected(features)) {
-          const currentTime = Tone.Transport.seconds
-          const clapTime = currentTime - recordingStartTimeRef.current
+    // 使用 AnalyserNode 掌聲偵測
+    const { analyserSetup } = micSetupRef.current
+    if (analyserSetup) {
+      startClapDetection(analyserSetup, () => {
+        const currentTime = Tone.Transport.seconds
+        const clapTime = currentTime - recordingStartTimeRef.current
 
-          // 去抖動：避免同一個掌聲被多次偵測（100ms 內的重複忽略）
-          if (currentTime - lastClapTimeRef.current > 0.1) {
-            const beatIndex = getBeatIndexFromTime(clapTime, bpm) + 32  // +32 因為是第二個 8 拍
+        // 去抖動已在 startClapDetection 內部處理
+        const beatIndex = getBeatIndexFromTime(clapTime, bpm) + 32  // +32 因為是第二個 8 拍
 
-            console.log('偵測到掌聲:', beatIndex, 'time:', clapTime)
+        console.log('偵測到掌聲:', beatIndex, 'time:', clapTime)
 
-            setRecordedClaps(prev => [...prev, beatIndex])
-            lastClapTimeRef.current = currentTime
+        setRecordedClaps(prev => [...prev, beatIndex])
+        lastClapTimeRef.current = currentTime
 
-            // 即時視覺回饋
-            Tone.Draw.schedule(() => {
-              setCurrentBeatIndex(beatIndex)
-            }, currentTime)
-          }
-        }
-      }
-      analyzer.start()
+        // 即時視覺回饋
+        Tone.Draw.schedule(() => {
+          setCurrentBeatIndex(beatIndex)
+        }, currentTime)
+      })
     }
   }
 
@@ -652,9 +677,9 @@ function RhythmTrainer() {
     if (!micSetupRef.current) return
 
     console.log('停止錄音')
-    const analyzer = micSetupRef.current.analyzer
-    if (analyzer) {
-      analyzer.stop()
+    const { analyserSetup } = micSetupRef.current
+    if (analyserSetup) {
+      stopClapDetection(analyserSetup)
     }
 
     // 清理麥克風資源
@@ -1013,8 +1038,6 @@ function RhythmTrainer() {
             </Paper>
           )}
 
-          {!isQuizMode && (
-            <>
           {/* 隨機考題區 */}
           <Paper p="md" withBorder bg="orange.0">
             <Stack gap="md">
@@ -1195,8 +1218,6 @@ function RhythmTrainer() {
               </Button>
             </Group>
           </Stack>
-            </>
-          )}
 
           {/* 視覺化與編輯區 */}
           <Paper p="md" withBorder bg="gray.0">
@@ -1231,7 +1252,12 @@ function RhythmTrainer() {
 
                 return (
                   <div key={index} style={{ display: 'flex', alignItems: 'center' }} onClick={() => {
-                    if (!isPlaying && !isQuizMode) {
+                    if (!isPlaying) {
+                      // 如果在測驗模式且有結果，編輯時清除結果
+                      if (isQuizMode && quizPhase === 'result') {
+                        setQuizPhase('idle')
+                        setQuizResult(null)
+                      }
                       setCustomBeats(prev => {
                         const newBeats = [...prev]
                         const b = { ...newBeats[index] }

@@ -1,12 +1,18 @@
 // src/App.tsx
 import { useState, useEffect, useRef } from 'react'
-import { Button, Container, Title, Text, Group, Paper, Stack, Switch, Divider, Slider, Select, TextInput, Checkbox, Collapse, Badge, Pagination } from '@mantine/core'
+import { Button, Container, Title, Text, Group, Paper, Stack, Switch, Divider, Slider, Select, TextInput, Checkbox, Collapse, Badge, Pagination, Loader } from '@mantine/core'
 import { Routes, Route, Link } from 'react-router-dom'
 import * as Tone from 'tone'
 import { getTransport } from 'tone'
 
+// 測驗模式相關導入
+import type { QuizPhase, QuizEvaluation, QuizRecord } from './types/quiz'
+import { initMicrophone, isClapDetected, getBeatIndexFromTime, cleanupMicrophone, type MicrophoneSetup } from './utils/audioDetection'
+import { evaluateQuiz } from './utils/quizEvaluation'
+import { loadQuizHistory, saveQuizRecord } from './utils/quizStorage'
+
 // --- 節奏模式資料結構 ---
-type SubBeat = {
+export type SubBeat = {
   time: string // Tone.js time notation (e.g., "0:0:0", "0:0:2") 0 小節, 第 0 拍, 第 0 個十六分音符
   note: string // C2:主拍(較重)、C1:次拍(較輕)、Rest:空拍
   label: string // 顯示在介面上的標籤(e.g.、 "1", "ple", "2")
@@ -15,7 +21,7 @@ type SubBeat = {
   enabled?: boolean // 用於自定義模式
 }
 
-type Preset = {
+export type Preset = {
   id: string
   name: string
   beats: SubBeat[]
@@ -104,6 +110,13 @@ function RhythmTrainer() {
   const [currentPage, setCurrentPage] = useState(1) // 當前頁碼
   const PRESETS_PER_PAGE = 5 // 每頁顯示數量
 
+  // 測驗模式相關狀態
+  const [isQuizMode, setIsQuizMode] = useState(false) // 測驗模式開關
+  const [quizPhase, setQuizPhase] = useState<QuizPhase>('idle') // 當前測驗階段
+  const [recordedClaps, setRecordedClaps] = useState<number[]>([]) // 錄製到的掌聲拍點索引
+  const [quizResult, setQuizResult] = useState<QuizEvaluation | null>(null) // 測驗結果
+  const [_quizHistory, setQuizHistory] = useState<QuizRecord[]>([]) // 測驗歷史（未來用於顯示歷史記錄）
+
   // 切換時間流動顯示位置
   const toggleTimePosition = (index: number) => {
     const newPositions = [...showTimePositions]
@@ -123,6 +136,11 @@ function RhythmTrainer() {
   const synthRef = useRef<Tone.NoiseSynth | null>(null) // 掌聲合成器
   const filterRef = useRef<Tone.Filter | null>(null) // 掌聲合成器
 
+  // 測驗模式相關 refs
+  const micSetupRef = useRef<MicrophoneSetup | null>(null) // 麥克風設置
+  const recordingStartTimeRef = useRef<number>(0) // 錄音開始時間
+  const lastClapTimeRef = useRef<number>(0) // 最後一次掌聲時間（用於去抖動）
+
   // 從 localStorage 載入自定義預設
   useEffect(() => {
     try {
@@ -133,6 +151,16 @@ function RhythmTrainer() {
       }
     } catch (error) {
       console.error('載入自定義預設失敗:', error)
+    }
+  }, [])
+
+  // 載入測驗歷史
+  useEffect(() => {
+    try {
+      const storage = loadQuizHistory()
+      setQuizHistory(storage.records)
+    } catch (error) {
+      console.error('載入測驗歷史失敗:', error)
     }
   }, [])
 
@@ -483,7 +511,245 @@ function RhythmTrainer() {
     return events
   }
 
+  // --- 測驗模式函數 ---
+
+  // 開始測驗
+  const startQuiz = async () => {
+    try {
+      // 1. 初始化 Tone.js
+      await Tone.start()
+      console.log('測驗模式啟動')
+
+      // 2. 初始化麥克風（但先不開始偵測）
+      micSetupRef.current = await initMicrophone()
+      console.log('麥克風初始化成功')
+
+      // 3. 重置測驗狀態
+      setRecordedClaps([])
+      setQuizResult(null)
+      lastClapTimeRef.current = 0
+
+      // 4. 建立播放序列（前 8 拍）
+      const playSequence = buildSequence()
+
+      // 5. 建立時間序列（用於顯示時間流動）
+      const timeSequence = buildTimeSequence()
+
+      // 6. 設定播放邏輯（前 8 拍播放，後 8 拍靜音）
+      partRef.current = new Tone.Part((time, beatInfo) => {
+        const beatIndex = beatInfo as number
+
+        // 處理 Pickup Beat
+        if (beatIndex === -1) {
+          if (synthRef.current) {
+            synthRef.current.volume.setValueAtTime(volume + 2, time)
+            synthRef.current.triggerAttackRelease("16n", time)
+          }
+          Tone.Draw.schedule(() => {
+            setCurrentBeatIndex(-1)
+          }, time)
+          return
+        }
+
+        const beat = customBeats[beatIndex]
+        if (beat && beat.enabled) {
+          // 發出聲音
+          if (synthRef.current) {
+            let volumeOffset = 0
+            if (beat.isMain) {
+              volumeOffset = beat.note === 'C2' ? 4 : 0
+            } else {
+              volumeOffset = -4
+            }
+            synthRef.current.volume.setValueAtTime(volume + volumeOffset, time)
+            synthRef.current.triggerAttackRelease("16n", time)
+          }
+
+          // 視覺同步
+          Tone.Draw.schedule(() => {
+            setCurrentBeatIndex(beatIndex)
+          }, time)
+        }
+      }, playSequence).start(0)
+
+      partRef.current.loop = false  // 測驗模式不循環
+
+      // 7. 設定時間追蹤器
+      timePartRef.current = new Tone.Part((time, beatInfo) => {
+        const beatIndex = beatInfo as number
+        Tone.Draw.schedule(() => {
+          setCurrentTimeIndex(beatIndex)
+        }, time)
+      }, timeSequence).start(0)
+
+      timePartRef.current.loop = false
+
+      // 8. 設定階段轉換時間點
+      // 8 拍後開始錄音（"0:9:0" 表示第 9 拍開始，因為包含 pickup beat）
+      Tone.Transport.schedule((time) => {
+        Tone.Draw.schedule(() => {
+          setQuizPhase('recording')
+          startRecording()
+        }, time)
+      }, "0:9:0")
+
+      // 16 拍後結束並評分（"0:17:0" 表示第 17 拍）
+      Tone.Transport.schedule((time) => {
+        Tone.Draw.schedule(() => {
+          stopRecording()
+          evaluateAndShowResults()
+        }, time)
+      }, "0:17:0")
+
+      // 9. 開始播放
+      setQuizPhase('playing')
+      getTransport().start()
+      setIsPlaying(true)
+    } catch (error) {
+      console.error('啟動測驗失敗:', error)
+      alert('無法啟動測驗：' + (error as Error).message)
+      resetQuiz()
+    }
+  }
+
+  // 開始錄音
+  const startRecording = () => {
+    if (!micSetupRef.current) return
+
+    console.log('開始錄音偵測')
+    recordingStartTimeRef.current = Tone.Transport.seconds
+
+    // 設定 Meyda 回調函數
+    const analyzer = micSetupRef.current.analyzer as any
+    if (analyzer) {
+      analyzer.callback = (features: any) => {
+        if (isClapDetected(features)) {
+          const currentTime = Tone.Transport.seconds
+          const clapTime = currentTime - recordingStartTimeRef.current
+
+          // 去抖動：避免同一個掌聲被多次偵測（100ms 內的重複忽略）
+          if (currentTime - lastClapTimeRef.current > 0.1) {
+            const beatIndex = getBeatIndexFromTime(clapTime, bpm) + 32  // +32 因為是第二個 8 拍
+
+            console.log('偵測到掌聲:', beatIndex, 'time:', clapTime)
+
+            setRecordedClaps(prev => [...prev, beatIndex])
+            lastClapTimeRef.current = currentTime
+
+            // 即時視覺回饋
+            Tone.Draw.schedule(() => {
+              setCurrentBeatIndex(beatIndex)
+            }, currentTime)
+          }
+        }
+      }
+      analyzer.start()
+    }
+  }
+
+  // 停止錄音
+  const stopRecording = () => {
+    if (!micSetupRef.current) return
+
+    console.log('停止錄音')
+    const analyzer = micSetupRef.current.analyzer
+    if (analyzer) {
+      analyzer.stop()
+    }
+
+    // 清理麥克風資源
+    cleanupMicrophone(micSetupRef.current)
+    micSetupRef.current = null
+  }
+
+  // 評分並顯示結果
+  const evaluateAndShowResults = () => {
+    setQuizPhase('evaluating')
+
+    // 停止 Transport
+    getTransport().stop()
+    if (partRef.current) {
+      partRef.current.dispose()
+      partRef.current = null
+    }
+    if (timePartRef.current) {
+      timePartRef.current.dispose()
+      timePartRef.current = null
+    }
+
+    setIsPlaying(false)
+    setCurrentBeatIndex(null)
+    setCurrentTimeIndex(null)
+
+    // 評分
+    const evaluation = evaluateQuiz(customBeats, recordedClaps, bpm, 32)
+    setQuizResult(evaluation)
+
+    // 儲存到歷史記錄
+    const record: QuizRecord = {
+      id: `quiz-${Date.now()}`,
+      timestamp: Date.now(),
+      patternName: selectedPresetId
+        ? (BUILT_IN_PRESETS.find(p => p.id === selectedPresetId)?.name || customPresets.find(p => p.id === selectedPresetId)?.name || 'Custom')
+        : 'Custom',
+      bpm,
+      usePickup,
+      pattern: JSON.parse(JSON.stringify(customBeats)),
+      evaluation
+    }
+
+    saveQuizRecord(record)
+    setQuizHistory(prev => [record, ...prev])
+
+    // 進入結果階段
+    setQuizPhase('result')
+    console.log('測驗評分完成:', evaluation)
+  }
+
+  // 重置測驗
+  const resetQuiz = () => {
+    // 停止播放
+    getTransport().stop()
+    getTransport().cancel(0)
+
+    // 清理 Parts
+    if (partRef.current) {
+      partRef.current.dispose()
+      partRef.current = null
+    }
+    if (timePartRef.current) {
+      timePartRef.current.dispose()
+      timePartRef.current = null
+    }
+
+    // 清理麥克風
+    if (micSetupRef.current) {
+      cleanupMicrophone(micSetupRef.current)
+      micSetupRef.current = null
+    }
+
+    // 重置狀態
+    setIsPlaying(false)
+    setQuizPhase('idle')
+    setRecordedClaps([])
+    setCurrentBeatIndex(null)
+    setCurrentTimeIndex(null)
+  }
+
   const togglePlay = async () => {
+    // 測驗模式分支
+    if (isQuizMode) {
+      if (quizPhase === 'idle' || quizPhase === 'result') {
+        // 開始新測驗
+        await startQuiz()
+      } else {
+        // 停止測驗
+        resetQuiz()
+      }
+      return
+    }
+
+    // 原有練習模式邏輯
     if (!isPlaying) {
       await Tone.start() // 瀏覽器要求必須有互動才能開始聲音
       console.log('Tone.js started, context state:', Tone.context.state)
@@ -590,13 +856,27 @@ function RhythmTrainer() {
           <Group justify="space-between" align="flex-start" wrap="wrap">
             <Group gap="lg">
               <Button color={isPlaying ? "red" : "green"} onClick={togglePlay} size="lg">
-                {isPlaying ? "停止" : "開始"}
+                {isPlaying ? "停止" : (isQuizMode ? "開始測驗" : "開始")}
               </Button>
               <Switch
                 label="循環"
                 checked={loop}
                 onChange={(e) => setLoop(e.currentTarget.checked)}
+                disabled={isPlaying || isQuizMode}
+              />
+              <Switch
+                label="測驗模式"
+                checked={isQuizMode}
+                onChange={(e) => {
+                  setIsQuizMode(e.currentTarget.checked)
+                  if (e.currentTarget.checked) {
+                    setLoop(false)  // 測驗模式自動關閉循環
+                    setQuizPhase('idle')
+                    setQuizResult(null)
+                  }
+                }}
                 disabled={isPlaying}
+                color="orange"
               />
             </Group>
             <Stack gap="md" style={{ flex: 1, minWidth: '250px' }}>
@@ -652,6 +932,89 @@ function RhythmTrainer() {
             </Stack>
           </Group>
           <Divider />
+
+          {/* 測驗模式狀態指示器 */}
+          {isQuizMode && (
+            <Paper p="md" withBorder bg={
+              quizPhase === 'idle' ? 'gray.0' :
+              quizPhase === 'playing' ? 'blue.0' :
+              quizPhase === 'recording' ? 'orange.1' :
+              quizPhase === 'evaluating' ? 'yellow.0' :
+              'green.0'
+            }>
+              <Stack gap="md">
+                <Group justify="space-between">
+                  <Badge size="lg" color={
+                    quizPhase === 'idle' ? 'gray' :
+                    quizPhase === 'playing' ? 'blue' :
+                    quizPhase === 'recording' ? 'orange' :
+                    quizPhase === 'evaluating' ? 'yellow' :
+                    'green'
+                  }>
+                    {
+                      quizPhase === 'idle' ? '待機' :
+                      quizPhase === 'playing' ? '播放階段' :
+                      quizPhase === 'recording' ? '錄音階段' :
+                      quizPhase === 'evaluating' ? '評分中...' :
+                      '測驗完成'
+                    }
+                  </Badge>
+                  {quizPhase === 'playing' && <Text size="sm">聆聽節奏...</Text>}
+                  {quizPhase === 'recording' && (
+                    <Group>
+                      <Text size="sm" fw={600}>請拍掌！</Text>
+                      <Loader size="sm" />
+                    </Group>
+                  )}
+                  {quizPhase === 'result' && quizResult && (
+                    <Text size="sm" fw={600}>
+                      準確度: {quizResult.accuracy.toFixed(1)}%
+                    </Text>
+                  )}
+                </Group>
+
+                {/* 測驗結果詳細 */}
+                {quizPhase === 'result' && quizResult && (
+                  <Stack gap="xs">
+                    <Divider />
+                    <Group gap="lg" justify="space-around">
+                      <Stack gap={4} align="center">
+                        <Text size="xs" c="dimmed">正確</Text>
+                        <Badge color="green" size="lg">{quizResult.correctCount}</Badge>
+                      </Stack>
+                      <Stack gap={4} align="center">
+                        <Text size="xs" c="dimmed">遺漏</Text>
+                        <Badge color="red" size="lg">{quizResult.missedCount}</Badge>
+                      </Stack>
+                      <Stack gap={4} align="center">
+                        <Text size="xs" c="dimmed">多餘</Text>
+                        <Badge color="yellow" size="lg">{quizResult.extraCount}</Badge>
+                      </Stack>
+                      <Stack gap={4} align="center">
+                        <Text size="xs" c="dimmed">平均誤差</Text>
+                        <Badge color="blue" size="lg">{quizResult.averageTimingError}ms</Badge>
+                      </Stack>
+                    </Group>
+                    <Group justify="center" mt="sm">
+                      <Button
+                        variant="filled"
+                        color="orange"
+                        onClick={() => {
+                          setQuizPhase('idle')
+                          setQuizResult(null)
+                        }}
+                      >
+                        再測驗一次
+                      </Button>
+                    </Group>
+                  </Stack>
+                )}
+              </Stack>
+            </Paper>
+          )}
+
+          {!isQuizMode && (
+            <>
           {/* 隨機考題區 */}
           <Paper p="md" withBorder bg="orange.0">
             <Stack gap="md">
@@ -832,6 +1195,9 @@ function RhythmTrainer() {
               </Button>
             </Group>
           </Stack>
+            </>
+          )}
+
           {/* 視覺化與編輯區 */}
           <Paper p="md" withBorder bg="gray.0">
             {/* Pickup Beat (可點擊切換) */}
@@ -857,9 +1223,15 @@ function RhythmTrainer() {
             <Group gap="xs" justify="center" style={{ maxWidth: '100%' }}>
               {customBeats.map((beat, index) => {
                 const isBeatStart = index % 4 === 0
+
+                // 獲取測驗結果狀態
+                const quizStatus = quizPhase === 'result' && quizResult
+                  ? quizResult.beatEvaluations[index]?.status
+                  : null
+
                 return (
                   <div key={index} style={{ display: 'flex', alignItems: 'center' }} onClick={() => {
-                    if (!isPlaying) {
+                    if (!isPlaying && !isQuizMode) {
                       setCustomBeats(prev => {
                         const newBeats = [...prev]
                         const b = { ...newBeats[index] }
@@ -885,6 +1257,7 @@ function RhythmTrainer() {
                         label={beat.label}
                         isMain={beat.isMain}
                         isRest={!beat.enabled}
+                        quizStatus={quizStatus}
                       />
                     </div>
                   </div>
@@ -910,18 +1283,32 @@ function RhythmTrainer() {
 }
 
 // 視覺指示燈組件 - 支援主拍與子拍的差異顯示
-function BeatIndicator({ isActive, isTimePlaying, label, isMain = true, isRest = false }: {
+function BeatIndicator({ isActive, isTimePlaying, label, isMain = true, isRest = false, quizStatus }: {
   isActive: boolean,
   isTimePlaying?: boolean,
   label: string,
   isMain?: boolean,
-  isRest?: boolean
+  isRest?: boolean,
+  quizStatus?: 'correct' | 'missed' | 'extra' | 'correct-silent' | null
 }) {
   const size = isMain ? '50px' : '35px'
   const fontSize = isMain ? '14px' : '11px'
 
+  // 測驗結果顏色
+  const quizColors = {
+    correct: '#51cf66',           // 綠色
+    missed: '#ff6b6b',            // 紅色
+    extra: '#ffd43b',             // 黃色
+    'correct-silent': '#e9ecef'   // 灰色（正確的空拍）
+  }
+
   // 基礎顏色
-  const baseColor = isRest ? '#f8f9fa' : (isMain ? '#dee2e6' : '#e9ecef')
+  let baseColor = isRest ? '#f8f9fa' : (isMain ? '#dee2e6' : '#e9ecef')
+
+  // 如果有測驗結果，使用測驗結果顏色
+  if (quizStatus && quizStatus !== 'correct-silent') {
+    baseColor = quizColors[quizStatus]
+  }
 
   // 時間流動顏色（淡藍色）
   const timePlayingColor = '#c5dff8' // 淡藍色
@@ -929,7 +1316,7 @@ function BeatIndicator({ isActive, isTimePlaying, label, isMain = true, isRest =
   // 發聲時的高亮顏色（鮮艷橙色）
   const soundPlayingColor = '#ff9500'
 
-  // 決定背景顏色：發聲 > 時間流動 > 基礎
+  // 決定背景顏色：發聲 > 時間流動 > 測驗結果/基礎
   let backgroundColor = baseColor
   if (isTimePlaying && !isActive) {
     backgroundColor = timePlayingColor

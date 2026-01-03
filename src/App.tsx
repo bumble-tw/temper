@@ -1,6 +1,6 @@
 // src/App.tsx
 import { useState, useEffect, useRef } from 'react'
-import { Button, Container, Title, Text, Group, Paper, Stack, Switch, Divider, Slider, Select, TextInput } from '@mantine/core'
+import { Button, Container, Title, Text, Group, Paper, Stack, Switch, Divider, Slider, Select, TextInput, Checkbox, Collapse, Badge, Pagination } from '@mantine/core'
 import { Routes, Route, Link } from 'react-router-dom'
 import * as Tone from 'tone'
 import { getTransport } from 'tone'
@@ -86,6 +86,10 @@ function RhythmTrainer() {
   const [volume, setVolume] = useState(-10) // 音量控制 (dB)
   const [currentBeatIndex, setCurrentBeatIndex] = useState<number | null>(null) // 正在發聲的拍點
   const [currentTimeIndex, setCurrentTimeIndex] = useState<number | null>(null) // 當前時間位置（8拍循環）
+
+  // 時間流動顯示控制：[四分音符, 第2個, &, 第4個]
+  const [showTimePositions, setShowTimePositions] = useState([false, false, false, false])
+
   // 自定義模式的狀態 (32 個拍點的扁平陣列)
   const [customBeats, setCustomBeats] = useState<SubBeat[]>(
     JSON.parse(JSON.stringify(INITIAL_CUSTOM_BEATS))
@@ -96,6 +100,22 @@ function RhythmTrainer() {
   const [selectedPresetId, setSelectedPresetId] = useState<string>('')
   const [newPresetName, setNewPresetName] = useState('')
   const [usePickup, setUsePickup] = useState(true) // 是否使用 pickup beat
+  const [showManagePresets, setShowManagePresets] = useState(false) // 顯示管理預設區域
+  const [currentPage, setCurrentPage] = useState(1) // 當前頁碼
+  const PRESETS_PER_PAGE = 5 // 每頁顯示數量
+
+  // 切換時間流動顯示位置
+  const toggleTimePosition = (index: number) => {
+    const newPositions = [...showTimePositions]
+    newPositions[index] = !newPositions[index]
+    setShowTimePositions(newPositions)
+  }
+
+  // 計算分頁
+  const totalPages = Math.ceil(customPresets.length / PRESETS_PER_PAGE)
+  const startIndex = (currentPage - 1) * PRESETS_PER_PAGE
+  const endIndex = startIndex + PRESETS_PER_PAGE
+  const currentPresets = customPresets.slice(startIndex, endIndex)
 
 
   const partRef = useRef<Tone.Part | null>(null) // 節奏控制器（聲音）
@@ -175,36 +195,194 @@ function RhythmTrainer() {
     }
   }, [volume])
 
-  // 設定 Triple Step 預設節奏
-  const setTripleStepPattern = () => {
-    if (isPlaying) return // 播放中不允許改變
-
-    const newBeats = JSON.parse(JSON.stringify(INITIAL_CUSTOM_BEATS)) as SubBeat[]
-
-    // Triple Step 節奏：Tri(0) - ple(3) - Step(4)，在 8 拍中重複 4 次
-    // ple 在每個奇數拍的第4個十六分音符（距離下一拍 1/4 拍）
-    const tripleStepIndices = [
-      0, 3, 4,      // 第1-2拍：Tri, ple, Step
-      8, 11, 12,    // 第3-4拍：Tri, ple, Step
-      16, 19, 20,   // 第5-6拍：Tri, ple, Step
-      24, 27, 28    // 第7-8拍：Tri, ple, Step
-    ]
-
-    tripleStepIndices.forEach(index => {
-      newBeats[index].enabled = true
-      newBeats[index].note = newBeats[index].isMain ? 'C2' : 'C1'
-      newBeats[index].isRest = false
-    })
-
-    setCustomBeats(newBeats)
-  }
-
   // 清除所有節奏
   const clearPattern = () => {
     if (isPlaying) return
     setCustomBeats(JSON.parse(JSON.stringify(INITIAL_CUSTOM_BEATS)))
     setSelectedPresetId('')
     setUsePickup(true) // 重置為預設啟用
+  }
+
+  // 生成隨機考題（簡單難度）
+  // 簡單：只有四分音符位置，有空拍，可能只有少數拍點
+  const generateEasyQuestion = () => {
+    if (isPlaying) return
+
+    const newBeats = JSON.parse(JSON.stringify(INITIAL_CUSTOM_BEATS)) as SubBeat[]
+
+    // 8 個四分音符位置（每拍的第一個十六分音符）
+    const quarterNotePositions = [0, 4, 8, 12, 16, 20, 24, 28]
+
+    // 決定要啟用多少個拍點（1-6 個，偏向少數）
+    const totalBeats = Math.floor(Math.random() * 6) + 1 // 1-6 個
+
+    // 隨機選擇要啟用的位置
+    const shuffled = [...quarterNotePositions].sort(() => Math.random() - 0.5)
+    const selectedPositions = shuffled.slice(0, totalBeats)
+
+    // 啟用選中的位置
+    selectedPositions.forEach(pos => enableBeat(newBeats, pos))
+
+    setCustomBeats(newBeats)
+    setUsePickup(false) // 簡單考題不使用 pickup beat
+    setSelectedPresetId('') // 清除選擇的預設
+  }
+
+  // 生成隨機考題（中等難度）
+  // 中等：增加 'a' 拍，有 pickup beat，有空拍（不使用 '&' 拍）
+  // 'a' 拍（ple）一定會連著四分音符，不會單獨出現
+  const generateMediumQuestion = () => {
+    if (isPlaying) return
+
+    const newBeats = JSON.parse(JSON.stringify(INITIAL_CUSTOM_BEATS)) as SubBeat[]
+
+    // 8 拍，每拍可以在四分音符位置或 'a' 位置（不使用 '&' 拍）
+    // 'a' 拍不會單獨出現，一定連著四分音符
+    for (let beat = 0; beat < 8; beat++) {
+      const quarterPos = beat * 4 // 四分音符位置 (0, 4, 8, ...)
+      const aPos = beat * 4 + 3    // 'a' 位置 (3, 7, 11, ...)
+
+      const rand = Math.random()
+
+      if (rand < 0.4) {
+        // 40% 機率：只有四分音符
+        enableBeat(newBeats, quarterPos)
+      } else if (rand < 0.7) {
+        // 30% 機率：四分音符 + 'a' 拍（'a' 拍一定連著四分音符）
+        enableBeat(newBeats, quarterPos)
+        enableBeat(newBeats, aPos)
+      }
+      // 30% 機率：空拍（什麼都不做）
+    }
+
+    // 50% 機率使用 pickup beat
+    const hasPickup = Math.random() < 0.5
+    setUsePickup(hasPickup)
+
+    // 如果有 pickup beat，確保第一個四分音符一定啟用（pickup 必須連著四分音符）
+    if (hasPickup) {
+      enableBeat(newBeats, 0)
+    }
+
+    setCustomBeats(newBeats)
+    setSelectedPresetId('') // 清除選擇的預設
+  }
+
+  // 生成隨機考題（困難難度）
+  // 困難：使用 'e' 和 'a' 位置（不使用 '&' 拍），較密集的組合，經常有 pickup beat
+  const generateHardQuestion = () => {
+    if (isPlaying) return
+
+    const newBeats = JSON.parse(JSON.stringify(INITIAL_CUSTOM_BEATS)) as SubBeat[]
+
+    // 8 拍，每拍可以在四分音符、'e'、'a' 位置（不使用 '&' 拍）
+    for (let beat = 0; beat < 8; beat++) {
+      const basePos = beat * 4
+
+      const rand = Math.random()
+
+      if (rand < 0.15) {
+        // 15% 機率：四分音符 + 'e' + 'a'（跳過 '&'）
+        enableBeat(newBeats, basePos)      // 四分音符
+        enableBeat(newBeats, basePos + 1)  // 'e'
+        enableBeat(newBeats, basePos + 3)  // 'a'
+      } else if (rand < 0.3) {
+        // 15% 機率：'e' + 'a'（跳過正拍和 '&'）
+        enableBeat(newBeats, basePos + 1)  // 'e'
+        enableBeat(newBeats, basePos + 3)  // 'a'
+      } else if (rand < 0.45) {
+        // 15% 機率：四分音符 + 'e'
+        enableBeat(newBeats, basePos)      // 四分音符
+        enableBeat(newBeats, basePos + 1)  // 'e'
+      } else if (rand < 0.6) {
+        // 15% 機率：四分音符 + 'a'（Triple Step 風格）
+        enableBeat(newBeats, basePos)      // 四分音符
+        enableBeat(newBeats, basePos + 3)  // 'a'
+      } else if (rand < 0.7) {
+        // 10% 機率：只有 'e'
+        enableBeat(newBeats, basePos + 1)  // 'e'
+      } else if (rand < 0.8) {
+        // 10% 機率：只有 'a'
+        enableBeat(newBeats, basePos + 3)  // 'a'
+      } else if (rand < 0.9) {
+        // 10% 機率：只有四分音符
+        enableBeat(newBeats, basePos)      // 四分音符
+      }
+      // 10% 機率：空拍
+    }
+
+    setCustomBeats(newBeats)
+    // 75% 機率使用 pickup beat
+    setUsePickup(Math.random() < 0.75)
+    setSelectedPresetId('')
+  }
+
+  // 生成隨機考題（地獄難度）
+  // 地獄：極度密集，複雜切分音，幾乎總是有 pickup beat
+  const generateHellQuestion = () => {
+    if (isPlaying) return
+
+    const newBeats = JSON.parse(JSON.stringify(INITIAL_CUSTOM_BEATS)) as SubBeat[]
+
+    // 8 拍，每拍都有高機率產生複雜節奏
+    for (let beat = 0; beat < 8; beat++) {
+      const basePos = beat * 4
+
+      const rand = Math.random()
+
+      if (rand < 0.2) {
+        // 20% 機率：所有四個十六分音符
+        enableBeat(newBeats, basePos)
+        enableBeat(newBeats, basePos + 1)
+        enableBeat(newBeats, basePos + 2)
+        enableBeat(newBeats, basePos + 3)
+      } else if (rand < 0.35) {
+        // 15% 機率：'e' + '&' + 'a'（省略四分音符）
+        enableBeat(newBeats, basePos + 1)
+        enableBeat(newBeats, basePos + 2)
+        enableBeat(newBeats, basePos + 3)
+      } else if (rand < 0.5) {
+        // 15% 機率：四分音符 + 'e' + 'a'（省略 '&'）
+        enableBeat(newBeats, basePos)
+        enableBeat(newBeats, basePos + 1)
+        enableBeat(newBeats, basePos + 3)
+      } else if (rand < 0.65) {
+        // 15% 機率：四分音符 + '&' + 'a'（省略 'e'）
+        enableBeat(newBeats, basePos)
+        enableBeat(newBeats, basePos + 2)
+        enableBeat(newBeats, basePos + 3)
+      } else if (rand < 0.75) {
+        // 10% 機率：'e' + 'a'（跳過正拍和 '&'）
+        enableBeat(newBeats, basePos + 1)
+        enableBeat(newBeats, basePos + 3)
+      } else if (rand < 0.85) {
+        // 10% 機率：只有 'e' + '&'
+        enableBeat(newBeats, basePos + 1)
+        enableBeat(newBeats, basePos + 2)
+      } else if (rand < 0.92) {
+        // 7% 機率：只有 '&' + 'a'
+        enableBeat(newBeats, basePos + 2)
+        enableBeat(newBeats, basePos + 3)
+      } else if (rand < 0.97) {
+        // 5% 機率：只有 '&'（稀有的單一反拍）
+        enableBeat(newBeats, basePos + 2)
+      }
+      // 3% 機率：空拍（極少）
+    }
+
+    setCustomBeats(newBeats)
+    // 90% 機率使用 pickup beat
+    setUsePickup(Math.random() < 0.9)
+    setSelectedPresetId('')
+  }
+
+  // 輔助函數：啟用指定位置的拍點
+  const enableBeat = (beats: SubBeat[], index: number) => {
+    if (index < beats.length) {
+      beats[index].enabled = true
+      beats[index].note = beats[index].isMain ? 'C2' : 'C1'
+      beats[index].isRest = false
+    }
   }
 
   // 載入預設
@@ -258,6 +436,12 @@ function RhythmTrainer() {
     const updatedPresets = customPresets.filter(p => p.id !== presetId)
     setCustomPresets(updatedPresets)
 
+    // 如果刪除後當前頁沒有項目了，跳回上一頁
+    const newTotalPages = Math.ceil(updatedPresets.length / PRESETS_PER_PAGE)
+    if (currentPage > newTotalPages && newTotalPages > 0) {
+      setCurrentPage(newTotalPages)
+    }
+
     try {
       localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(updatedPresets))
       if (selectedPresetId === presetId) {
@@ -290,7 +474,7 @@ function RhythmTrainer() {
   const buildTimeSequence = () => {
     const events: Array<[string, number]> = []
     // 包含所有 32 個拍點
-    customBeats.forEach((beat, index) => {
+    customBeats.forEach((_beat, index) => {
       const quarter = Math.floor(index / 4) + 1
       const sixteenth = index % 4
       const timeStr = `0:${quarter}:${sixteenth}`
@@ -435,8 +619,97 @@ function RhythmTrainer() {
                   ]}
                 />
               </Stack>
+              <Stack gap={0}>
+                <Text size="sm">時間流動顯示</Text>
+                <Group gap="xs" mt={4}>
+                  <Checkbox
+                    label="1"
+                    checked={showTimePositions[0]}
+                    onChange={() => toggleTimePosition(0)}
+                    size="xs"
+                  />
+                  <Checkbox
+                    label="."
+                    checked={showTimePositions[1]}
+                    onChange={() => toggleTimePosition(1)}
+                    size="xs"
+                  />
+                  <Checkbox
+                    label="&"
+                    checked={showTimePositions[2]}
+                    onChange={() => toggleTimePosition(2)}
+                    size="xs"
+                  />
+                  <Checkbox
+                    label="."
+                    checked={showTimePositions[3]}
+                    onChange={() => toggleTimePosition(3)}
+                    size="xs"
+                  />
+                </Group>
+                <Text size="xs" c="dimmed" mt={4}>選擇時間流動要顯示的拍點位置</Text>
+              </Stack>
             </Stack>
           </Group>
+          <Divider />
+          {/* 隨機考題區 */}
+          <Paper p="md" withBorder bg="orange.0">
+            <Stack gap="md">
+              <Text size="sm" fw={600} c="orange.8">隨機考題生成器</Text>
+              <Group gap="md" wrap="wrap">
+                <Button
+                  variant="filled"
+                  color="green"
+                  onClick={generateEasyQuestion}
+                  disabled={isPlaying}
+                  size="sm"
+                >
+                  簡單
+                </Button>
+                <Button
+                  variant="filled"
+                  color="yellow"
+                  onClick={generateMediumQuestion}
+                  disabled={isPlaying}
+                  size="sm"
+                >
+                  中等
+                </Button>
+                <Button
+                  variant="filled"
+                  color="orange"
+                  onClick={generateHardQuestion}
+                  disabled={isPlaying}
+                  size="sm"
+                >
+                  困難
+                </Button>
+                <Button
+                  variant="filled"
+                  color="red"
+                  onClick={generateHellQuestion}
+                  disabled={isPlaying}
+                  size="sm"
+                >
+                  地獄
+                </Button>
+              </Group>
+              <Stack gap={4}>
+                <Text size="xs" c="dimmed">
+                  <strong>簡單</strong>：只有四分音符，1-6 個拍點，無 Pickup Beat
+                </Text>
+                <Text size="xs" c="dimmed">
+                  <strong>中等</strong>：四分音符 + 'a' 拍（無 '&' 拍），'a' 拍必連著四分音符，50% 有 Pickup Beat
+                </Text>
+                <Text size="xs" c="dimmed">
+                  <strong>困難</strong>：四分音符 + 'e' + 'a' 位置（無 '&' 拍），複雜組合，75% 有 Pickup Beat
+                </Text>
+                <Text size="xs" c="dimmed">
+                  <strong>地獄</strong>：極密集節奏，複雜多音符組合，90% 有 Pickup Beat
+                </Text>
+              </Stack>
+            </Stack>
+          </Paper>
           <Divider />
           {/* 預設管理區 */}
           <Stack gap="md">
@@ -471,19 +744,73 @@ function RhythmTrainer() {
                 >
                   清除
                 </Button>
-                {selectedPresetId && customPresets.find(p => p.id === selectedPresetId) && (
+                {customPresets.length > 0 && (
                   <Button
                     variant="light"
-                    color="red"
-                    onClick={() => deletePreset(selectedPresetId)}
-                    disabled={isPlaying}
+                    color="blue"
+                    onClick={() => setShowManagePresets(!showManagePresets)}
                     size="sm"
                   >
-                    刪除預設
+                    管理預設 ({customPresets.length})
                   </Button>
                 )}
               </Group>
             </Group>
+
+            {/* 管理預設區域 */}
+            <Collapse in={showManagePresets}>
+              <Paper p="md" withBorder bg="gray.0" mt="md">
+                <Group justify="space-between" mb="sm">
+                  <Text size="sm" fw={600}>自定義預設列表</Text>
+                  <Text size="xs" c="dimmed">
+                    共 {customPresets.length} 個預設
+                  </Text>
+                </Group>
+                <Stack gap="xs">
+                  {currentPresets.map(preset => (
+                    <Group key={preset.id} justify="space-between" p="xs" style={{ borderRadius: '4px', backgroundColor: 'white' }}>
+                      <Group gap="sm">
+                        <Badge color="blue" variant="light" size="sm">自定義</Badge>
+                        <Text size="sm">{preset.name}</Text>
+                      </Group>
+                      <Group gap="xs">
+                        <Button
+                          variant="subtle"
+                          color="blue"
+                          size="xs"
+                          onClick={() => {
+                            loadPreset(preset.id)
+                            setShowManagePresets(false)
+                          }}
+                          disabled={isPlaying}
+                        >
+                          載入
+                        </Button>
+                        <Button
+                          variant="subtle"
+                          color="red"
+                          size="xs"
+                          onClick={() => deletePreset(preset.id)}
+                          disabled={isPlaying}
+                        >
+                          刪除
+                        </Button>
+                      </Group>
+                    </Group>
+                  ))}
+                </Stack>
+                {totalPages > 1 && (
+                  <Group justify="center" mt="md">
+                    <Pagination
+                      total={totalPages}
+                      value={currentPage}
+                      onChange={setCurrentPage}
+                      size="sm"
+                    />
+                  </Group>
+                )}
+              </Paper>
+            </Collapse>
 
             {/* 儲存為新預設 */}
             <Group justify="space-between" align="flex-end" wrap="wrap">
@@ -554,7 +881,7 @@ function RhythmTrainer() {
                       {isBeatStart && <Text size="10px" c="dimmed" style={{ marginBottom: 2 }}>{Math.floor(index / 4) + 1}</Text>}
                       <BeatIndicator
                         isActive={currentBeatIndex === index}
-                        isTimePlaying={currentTimeIndex === index}
+                        isTimePlaying={currentTimeIndex === index && showTimePositions[index % 4]}
                         label={beat.label}
                         isMain={beat.isMain}
                         isRest={!beat.enabled}

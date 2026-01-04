@@ -20,7 +20,7 @@ export interface AudioAnalyserSetup {
   audioContext: AudioContext
   source: MediaStreamAudioSourceNode
   analyser: AnalyserNode
-  dataArray: Uint8Array
+  dataArray: Uint8Array<ArrayBuffer>
   animationFrameId: number | null
 }
 
@@ -75,7 +75,7 @@ export const initMicrophone = async (): Promise<MicrophoneSetup> => {
 
     // 創建數據陣列用於存儲音頻數據
     const bufferLength = analyser.frequencyBinCount
-    const dataArray = new Uint8Array(bufferLength)
+    const dataArray = new Uint8Array(new ArrayBuffer(bufferLength))
 
     const analyserSetup: AudioAnalyserSetup = {
       stream,
@@ -103,7 +103,7 @@ export const initMicrophone = async (): Promise<MicrophoneSetup> => {
  * @param dataArray 音頻數據陣列
  * @returns 歸一化的能量值（0-1）
  */
-const calculateEnergy = (dataArray: Uint8Array): number => {
+const calculateEnergy = (dataArray: Uint8Array<ArrayBuffer>): number => {
   let sum = 0
   for (let i = 0; i < dataArray.length; i++) {
     const normalized = dataArray[i] / 255.0  // 歸一化到 0-1

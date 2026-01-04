@@ -29,6 +29,7 @@ export function RandomQuestionGenerator({
             onClick={onGenerateEasy}
             disabled={isPlaying}
             size="sm"
+            style={{ width: '60px', padding: '4px 8px' }}
           >
             簡單
           </Button>
@@ -38,6 +39,7 @@ export function RandomQuestionGenerator({
             onClick={onGenerateMedium}
             disabled={isPlaying}
             size="sm"
+            style={{ width: '60px', padding: '4px 8px' }}
           >
             中等
           </Button>
@@ -47,6 +49,7 @@ export function RandomQuestionGenerator({
             onClick={onGenerateHard}
             disabled={isPlaying}
             size="sm"
+            style={{ width: '60px', padding: '4px 8px' }}
           >
             困難
           </Button>
@@ -56,24 +59,11 @@ export function RandomQuestionGenerator({
             onClick={onGenerateHell}
             disabled={isPlaying}
             size="sm"
+            style={{ width: '60px', padding: '4px 8px' }}
           >
             地獄
           </Button>
         </Group>
-        <Stack gap={4}>
-          <Text size="xs" c="dimmed">
-            <strong>簡單</strong>：只有四分音符，1-6 個拍點，無 Pickup Beat
-          </Text>
-          <Text size="xs" c="dimmed">
-            <strong>中等</strong>：四分音符 + 'a' 拍（無 '&' 拍），'a' 拍必連著四分音符，50% 有 Pickup Beat
-          </Text>
-          <Text size="xs" c="dimmed">
-            <strong>困難</strong>：四分音符 + 'e' + 'a' 位置（無 '&' 拍），複雜組合，75% 有 Pickup Beat
-          </Text>
-          <Text size="xs" c="dimmed">
-            <strong>地獄</strong>：極密集節奏，複雜多音符組合，90% 有 Pickup Beat
-          </Text>
-        </Stack>
       </Stack>
     </Paper>
   )

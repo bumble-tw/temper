@@ -13,6 +13,7 @@ import type { QuizPhase, QuizEvaluation, QuizRecord } from '../types/quiz'
 
 // 常量導入
 import { INITIAL_CUSTOM_BEATS, BUILT_IN_PRESETS, CUSTOM_PRESETS_KEY } from '../constants/beats'
+import type { SoundType } from '../constants/soundTypes'
 
 // 工具函數導入
 import { generateEasyQuestion, generateMediumQuestion, generateHardQuestion, generateHellQuestion } from '../utils/beatGeneration'
@@ -32,16 +33,18 @@ export function Trainer() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [bpm, setBpm] = useState(120)
   const [loop, setLoop] = useState(true)
-  const [volume, setVolume] = useState(-10)
   const [currentBeatIndex, setCurrentBeatIndex] = useState<number | null>(null)
   const [currentTimeIndex, setCurrentTimeIndex] = useState<number | null>(null)
+
+  // 固定音量值
+  const volume = -10
 
   // 時間流動顯示控制
   const [showTimePositions, setShowTimePositions] = useState([false, false, false, false])
 
   // 新增功能開關
   const [enableCountdown, setEnableCountdown] = useState(true) // 倒數模式開關
-  const [landscapeMode, setLandscapeMode] = useState(false) // 橫向模式開關
+  const [soundType, setSoundType] = useState<SoundType>('clap') // 音效類型
 
   // 自定義模式的狀態
   const [customBeats, setCustomBeats] = useState<SubBeat[]>(
@@ -79,6 +82,83 @@ export function Trainer() {
     setShowTimePositions(newPositions)
   }
 
+  // 創建音效合成器的工廠函數
+  const createSoundSynth = (type: SoundType): Tone.Synth | Tone.NoiseSynth | Tone.MetalSynth | Tone.MembraneSynth => {
+    switch (type) {
+      case 'clap':
+        // 掌聲 - 使用粉紅噪音 + 濾波器
+        return new Tone.NoiseSynth({
+          noise: { type: "pink" },
+          envelope: { attack: 0.005, decay: 0.08, sustain: 0, release: 0.08 }
+        }).connect(filterRef.current!)
+
+      case 'meow':
+        // 貓咪聲 - 使用三角波模擬
+        return new Tone.Synth({
+          oscillator: { type: "triangle" },
+          envelope: { attack: 0.01, decay: 0.2, sustain: 0.1, release: 0.1 }
+        }).toDestination()
+
+      case 'woodblock':
+        // 木魚 - 使用金屬音
+        return new Tone.MetalSynth({
+          envelope: { attack: 0.001, decay: 0.1, release: 0.05 },
+          harmonicity: 5.1,
+          modulationIndex: 32,
+          resonance: 4000,
+          octaves: 1.5
+        }).toDestination()
+
+      case 'kick':
+        // 踢鼓 - 使用膜音合成器
+        return new Tone.MembraneSynth({
+          pitchDecay: 0.05,
+          octaves: 4,
+          oscillator: { type: "sine" },
+          envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 0.4 }
+        }).toDestination()
+
+      case 'snare':
+        // 小鼓 - 使用噪音 + 短衰減
+        return new Tone.NoiseSynth({
+          noise: { type: "white" },
+          envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.1 }
+        }).toDestination()
+
+      case 'hihat':
+        // 鈸 - 使用金屬音高頻
+        return new Tone.MetalSynth({
+          envelope: { attack: 0.001, decay: 0.1, release: 0.01 },
+          harmonicity: 5.1,
+          modulationIndex: 64,
+          resonance: 6000,
+          octaves: 1.5
+        }).toDestination()
+
+      case 'cowbell':
+        // 響板 - 使用方波
+        return new Tone.Synth({
+          oscillator: { type: "square" },
+          envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 }
+        }).toDestination()
+
+      case 'tom':
+        // 鼓 - 使用膜音 (較高音)
+        return new Tone.MembraneSynth({
+          pitchDecay: 0.08,
+          octaves: 2,
+          oscillator: { type: "sine" },
+          envelope: { attack: 0.001, decay: 0.5, sustain: 0, release: 0.2 }
+        }).toDestination()
+
+      default:
+        return new Tone.NoiseSynth({
+          noise: { type: "pink" },
+          envelope: { attack: 0.005, decay: 0.08, sustain: 0, release: 0.08 }
+        }).connect(filterRef.current!)
+    }
+  }
+
   // 從 localStorage 載入自定義預設
   useEffect(() => {
     try {
@@ -110,17 +190,7 @@ export function Trainer() {
       Q: 2
     }).toDestination()
 
-    synthRef.current = new Tone.NoiseSynth({
-      noise: {
-        type: "pink"
-      },
-      envelope: {
-        attack: 0.005,
-        decay: 0.08,
-        sustain: 0,
-        release: 0.08
-      }
-    }).connect(filterRef.current)
+    synthRef.current = createSoundSynth(soundType) as any
 
     countdownSynthRef.current = new Tone.Synth({
       oscillator: {
@@ -131,7 +201,8 @@ export function Trainer() {
         decay: 0.1,
         sustain: 0,
         release: 0.1
-      }
+      },
+      volume: volume // 設置為與拍子相同的音量
     }).toDestination()
 
     getTransport().set({
@@ -165,11 +236,26 @@ export function Trainer() {
     getTransport().bpm.value = bpm
   }, [bpm])
 
+  // 設置固定音量
   useEffect(() => {
     if (synthRef.current) {
       synthRef.current.volume.value = volume
     }
-  }, [volume])
+    if (countdownSynthRef.current) {
+      countdownSynthRef.current.volume.value = volume
+    }
+  }, [])
+
+  // 當音效類型改變時重新創建合成器
+  useEffect(() => {
+    if (synthRef.current) {
+      synthRef.current.dispose()
+    }
+    synthRef.current = createSoundSynth(soundType) as any
+    if (synthRef.current) {
+      synthRef.current.volume.value = volume
+    }
+  }, [soundType])
 
   // 清除所有節奏
   const clearPattern = () => {
@@ -654,21 +740,19 @@ export function Trainer() {
   }
 
   return (
-    <Container size={landscapeMode ? "xl" : "lg"} py={landscapeMode ? "md" : "xl"}>
-      {!landscapeMode && <Title order={2} mb="lg">Swing 節拍練習器</Title>}
+    <Container size="lg" py="xl">
+      <Title order={2} mb="lg">Swing 節拍練習器</Title>
       <Paper shadow="xs" p="md" withBorder>
-        <Stack gap={landscapeMode ? "md" : "lg"}>
+        <Stack gap="lg">
           {/* 控制區 */}
           <ControlPanel
             isPlaying={isPlaying}
             isQuizMode={isQuizMode}
             loop={loop}
             bpm={bpm}
-            volume={volume}
             showTimePositions={showTimePositions}
             enableCountdown={enableCountdown}
-            landscapeMode={landscapeMode}
-            onTogglePlay={togglePlay}
+            soundType={soundType}
             onToggleQuizMode={(checked) => {
               setIsQuizMode(checked)
               if (checked) {
@@ -679,10 +763,9 @@ export function Trainer() {
             }}
             onToggleLoop={setLoop}
             onBpmChange={setBpm}
-            onVolumeChange={setVolume}
             onToggleTimePosition={toggleTimePosition}
             onToggleCountdown={setEnableCountdown}
-            onToggleLandscape={setLandscapeMode}
+            onSoundTypeChange={setSoundType}
           />
           <Divider />
 
@@ -698,36 +781,30 @@ export function Trainer() {
             />
           )}
 
-          {/* 隨機考題區 - 橫向模式下隱藏 */}
-          {!landscapeMode && (
-            <>
-              <RandomQuestionGenerator
-                isPlaying={isPlaying}
-                onGenerateEasy={handleGenerateEasyQuestion}
-                onGenerateMedium={handleGenerateMediumQuestion}
-                onGenerateHard={handleGenerateHardQuestion}
-                onGenerateHell={handleGenerateHellQuestion}
-              />
-              <Divider />
-            </>
-          )}
+          {/* 隨機考題區 */}
+          <RandomQuestionGenerator
+            isPlaying={isPlaying}
+            onGenerateEasy={handleGenerateEasyQuestion}
+            onGenerateMedium={handleGenerateMediumQuestion}
+            onGenerateHard={handleGenerateHardQuestion}
+            onGenerateHell={handleGenerateHellQuestion}
+          />
+          <Divider />
 
-          {/* 預設管理區 - 橫向模式下隱藏 */}
-          {!landscapeMode && (
-            <PresetManager
-              customPresets={customPresets}
-              selectedPresetId={selectedPresetId}
-              newPresetName={newPresetName}
-              showManagePresets={showManagePresets}
-              isPlaying={isPlaying}
-              onLoadPreset={loadPreset}
-              onClearPattern={clearPattern}
-              onToggleManagePresets={() => setShowManagePresets(!showManagePresets)}
-              onSaveAsPreset={saveAsPreset}
-              onDeletePreset={deletePreset}
-              onNewPresetNameChange={setNewPresetName}
-            />
-          )}
+          {/* 預設管理區 */}
+          <PresetManager
+            customPresets={customPresets}
+            selectedPresetId={selectedPresetId}
+            newPresetName={newPresetName}
+            showManagePresets={showManagePresets}
+            isPlaying={isPlaying}
+            onLoadPreset={loadPreset}
+            onClearPattern={clearPattern}
+            onToggleManagePresets={() => setShowManagePresets(!showManagePresets)}
+            onSaveAsPreset={saveAsPreset}
+            onDeletePreset={deletePreset}
+            onNewPresetNameChange={setNewPresetName}
+          />
 
           {/* 拍點編輯器 */}
           <BeatEditor
@@ -743,13 +820,11 @@ export function Trainer() {
           />
         </Stack>
       </Paper>
-      {!landscapeMode && (
-        <Group mt="xl" justify="center">
-          <Link to="/">
-            <Button variant="subtle">回到首頁</Button>
-          </Link>
-        </Group>
-      )}
+      <Group mt="xl" justify="center">
+        <Link to="/">
+          <Button variant="subtle">回到首頁</Button>
+        </Link>
+      </Group>
 
       {/* 測驗倒數 Modal */}
       <Modal
@@ -766,6 +841,34 @@ export function Trainer() {
           </Title>
         </Center>
       </Modal>
+
+      {/* 固定在右下角的開始/停止按鈕 */}
+      <Button
+        color={isPlaying ? "red" : "green"}
+        onClick={togglePlay}
+        size="xl"
+        style={{
+          position: 'fixed',
+          bottom: '20px',
+          right: '20px',
+          width: '90px',
+          height: '90px',
+          borderRadius: '50%',
+          fontSize: '14px',
+          fontWeight: 'bold',
+          zIndex: 1000,
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+          padding: '8px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          whiteSpace: 'normal',
+          wordBreak: 'break-all',
+          lineHeight: '1.2'
+        }}
+      >
+        {isPlaying ? "停止" : (isQuizMode ? "開始測驗" : "開始")}
+      </Button>
     </Container>
   )
 }

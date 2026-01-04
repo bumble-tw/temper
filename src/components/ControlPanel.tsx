@@ -1,7 +1,7 @@
 // src/components/ControlPanel.tsx
 // 控制面板組件
 
-import { Group, Button, Switch, Stack, Text, Slider, Checkbox, Select } from '@mantine/core'
+import { Group, Switch, Stack, Text, Slider, Checkbox, Select } from '@mantine/core'
 import { SOUND_OPTIONS, type SoundType } from '../constants/soundTypes'
 
 export interface ControlPanelProps {

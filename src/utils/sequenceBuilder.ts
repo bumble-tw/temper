@@ -1,7 +1,7 @@
 // src/utils/sequenceBuilder.ts
 // 節奏序列建構工具
 
-import type { SubBeat } from '../App'
+import type { SubBeat } from '../types/rhythm'
 
 /**
  * 建立播放序列（只包含啟用的拍點）

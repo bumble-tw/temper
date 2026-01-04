@@ -1,7 +1,7 @@
 // src/types/quiz.ts
 // 測驗模式相關的 TypeScript 類型定義
 
-import type { SubBeat } from '../App'
+import type { SubBeat } from './rhythm'
 
 // 測驗階段狀態
 export type QuizPhase = 'idle' | 'playing' | 'recording' | 'evaluating' | 'result'

@@ -1,7 +1,7 @@
 // src/utils/beatGeneration.ts
 // 隨機節奏生成工具
 
-import type { SubBeat } from '../App'
+import type { SubBeat } from '../types/rhythm'
 
 /**
  * 輔助函數：啟用指定位置的拍點

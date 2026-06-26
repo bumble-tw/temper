@@ -102,7 +102,6 @@ export function ControlPanel({
               size="xs"
             />
           </Group>
-          <Text size="xs" c="dimmed" mt={4}>選擇時間流動要顯示的拍點位置</Text>
         </Stack>
       </Stack>
     </Group>

@@ -2,7 +2,7 @@
 // 節拍練習器主頁面
 
 import { useState, useEffect, useRef } from 'react'
-import { Container, Title, Paper, Stack, Divider, Group, Button, Modal, Center } from '@mantine/core'
+import { Container, Title, Paper, Stack, Divider, Group, Button, Modal, Center, Tabs, Text, Slider, Select, Switch, Checkbox } from '@mantine/core'
 import { Link } from 'react-router-dom'
 import * as Tone from 'tone'
 import { getTransport } from 'tone'
@@ -13,7 +13,7 @@ import type { QuizPhase, QuizEvaluation, QuizRecord } from '../types/quiz'
 
 // 常量導入
 import { INITIAL_CUSTOM_BEATS, BUILT_IN_PRESETS, CUSTOM_PRESETS_KEY } from '../constants/beats'
-import type { SoundType } from '../constants/soundTypes'
+import { SOUND_OPTIONS, type SoundType } from '../constants/soundTypes'
 
 // 工具函數導入
 import { generateEasyQuestion, generateMediumQuestion, generateHardQuestion, generateHellQuestion } from '../utils/beatGeneration'
@@ -23,13 +23,15 @@ import { evaluateQuiz } from '../utils/quizEvaluation'
 import { loadQuizHistory, saveQuizRecord } from '../utils/quizStorage'
 
 // 組件導入
-import { ControlPanel } from '../components/ControlPanel'
 import { QuizStatusPanel } from '../components/QuizStatusPanel'
 import { PresetManager } from '../components/PresetManager'
 import { BeatEditor } from '../components/BeatEditor'
 import { RandomQuestionGenerator } from '../components/RandomQuestionGenerator'
 
 export function Trainer() {
+  // 頁籤狀態
+  const [activeTab, setActiveTab] = useState<string | null>('quiz')
+
   const [isPlaying, setIsPlaying] = useState(false)
   const [bpm, setBpm] = useState(120)
   const [loop, setLoop] = useState(true)
@@ -58,7 +60,6 @@ export function Trainer() {
   const [showManagePresets, setShowManagePresets] = useState(false)
 
   // 測驗模式相關狀態
-  const [isQuizMode, setIsQuizMode] = useState(false)
   const [quizPhase, setQuizPhase] = useState<QuizPhase>('idle')
   const [recordedClaps, setRecordedClaps] = useState<number[]>([])
   const [quizResult, setQuizResult] = useState<QuizEvaluation | null>(null)
@@ -81,6 +82,45 @@ export function Trainer() {
     newPositions[index] = !newPositions[index]
     setShowTimePositions(newPositions)
   }
+
+  // 當頁籤切換時，停止播放並重置測驗狀態
+  useEffect(() => {
+    if (isPlaying) {
+      // 停止播放
+      getTransport().stop()
+      getTransport().position = 0
+      getTransport().cancel(0)
+      if (partRef.current) {
+        partRef.current.stop()
+        partRef.current.dispose()
+        partRef.current = null
+      }
+      if (timePartRef.current) {
+        timePartRef.current.stop()
+        timePartRef.current.dispose()
+        timePartRef.current = null
+      }
+      setIsPlaying(false)
+      setCurrentBeatIndex(null)
+      setCurrentTimeIndex(null)
+    }
+
+    // 如果離開測驗模式頁籤，重置測驗狀態
+    if (activeTab !== 'quiz' && quizPhase !== 'idle') {
+      if (micSetupRef.current) {
+        cleanupMicrophone(micSetupRef.current)
+        micSetupRef.current = null
+      }
+      setQuizPhase('idle')
+      setQuizResult(null)
+      setRecordedClaps([])
+    }
+
+    // 如果切換到測驗模式，關閉循環
+    if (activeTab === 'quiz') {
+      setLoop(false)
+    }
+  }, [activeTab])
 
   // 創建音效合成器的工廠函數
   const createSoundSynth = (type: SoundType): Tone.Synth | Tone.NoiseSynth | Tone.MetalSynth | Tone.MembraneSynth => {
@@ -260,7 +300,7 @@ export function Trainer() {
   // 清除所有節奏
   const clearPattern = () => {
     if (isPlaying) return
-    if (isQuizMode && quizPhase === 'result') {
+    if (activeTab === 'quiz' && quizPhase === 'result') {
       setQuizPhase('idle')
       setQuizResult(null)
     }
@@ -271,7 +311,7 @@ export function Trainer() {
   // 載入預設
   const loadPreset = (presetId: string) => {
     if (isPlaying) return
-    if (isQuizMode && quizPhase === 'result') {
+    if (activeTab === 'quiz' && quizPhase === 'result') {
       setQuizPhase('idle')
       setQuizResult(null)
     }
@@ -333,7 +373,7 @@ export function Trainer() {
   // 生成隨機考題（使用工具函數）
   const handleGenerateEasyQuestion = () => {
     if (isPlaying) return
-    if (isQuizMode && quizPhase === 'result') {
+    if (activeTab === 'quiz' && quizPhase === 'result') {
       setQuizPhase('idle')
       setQuizResult(null)
     }
@@ -343,7 +383,7 @@ export function Trainer() {
 
   const handleGenerateMediumQuestion = () => {
     if (isPlaying) return
-    if (isQuizMode && quizPhase === 'result') {
+    if (activeTab === 'quiz' && quizPhase === 'result') {
       setQuizPhase('idle')
       setQuizResult(null)
     }
@@ -353,7 +393,7 @@ export function Trainer() {
 
   const handleGenerateHardQuestion = () => {
     if (isPlaying) return
-    if (isQuizMode && quizPhase === 'result') {
+    if (activeTab === 'quiz' && quizPhase === 'result') {
       setQuizPhase('idle')
       setQuizResult(null)
     }
@@ -363,7 +403,7 @@ export function Trainer() {
 
   const handleGenerateHellQuestion = () => {
     if (isPlaying) return
-    if (isQuizMode && quizPhase === 'result') {
+    if (activeTab === 'quiz' && quizPhase === 'result') {
       setQuizPhase('idle')
       setQuizResult(null)
     }
@@ -600,7 +640,7 @@ export function Trainer() {
   }
 
   const togglePlay = async () => {
-    if (isQuizMode) {
+    if (activeTab === 'quiz') {
       if (quizPhase === 'idle' || quizPhase === 'result') {
         // 測驗模式總是使用倒數
         await startQuizWithCountdown()
@@ -718,7 +758,7 @@ export function Trainer() {
   // 拍點切換處理
   const handleBeatToggle = (index: number) => {
     if (!isPlaying) {
-      if (isQuizMode && quizPhase === 'result') {
+      if (activeTab === 'quiz' && quizPhase === 'result') {
         setQuizPhase('idle')
         setQuizResult(null)
       }
@@ -739,86 +779,295 @@ export function Trainer() {
     }
   }
 
+  // 根據頁籤決定是否為測驗模式
+  const isQuizModeActive = activeTab === 'quiz'
+
   return (
     <Container size="lg" py="xl">
       <Title order={2} mb="lg">Swing 節拍練習器</Title>
       <Paper shadow="xs" p="md" withBorder>
-        <Stack gap="lg">
-          {/* 控制區 */}
-          <ControlPanel
-            isPlaying={isPlaying}
-            isQuizMode={isQuizMode}
-            loop={loop}
-            bpm={bpm}
-            showTimePositions={showTimePositions}
-            enableCountdown={enableCountdown}
-            soundType={soundType}
-            onToggleQuizMode={(checked) => {
-              setIsQuizMode(checked)
-              if (checked) {
-                setLoop(false)
-                setQuizPhase('idle')
-                setQuizResult(null)
-              }
-            }}
-            onToggleLoop={setLoop}
-            onBpmChange={setBpm}
-            onToggleTimePosition={toggleTimePosition}
-            onToggleCountdown={setEnableCountdown}
-            onSoundTypeChange={setSoundType}
-          />
-          <Divider />
+        <Tabs value={activeTab} onChange={setActiveTab}>
+          <Tabs.List>
+            <Tabs.Tab value="quiz">測驗模式</Tabs.Tab>
+            <Tabs.Tab value="random">隨機考題</Tabs.Tab>
+            <Tabs.Tab value="custom">自訂模式</Tabs.Tab>
+          </Tabs.List>
 
-          {/* 測驗模式狀態指示器 */}
-          {isQuizMode && (
-            <QuizStatusPanel
-              quizPhase={quizPhase}
-              quizResult={quizResult}
-              onRetry={() => {
-                setQuizPhase('idle')
-                setQuizResult(null)
-              }}
-            />
-          )}
+          {/* 測驗模式頁籤 */}
+          <Tabs.Panel value="quiz" pt="md">
+            <Stack gap="lg">
+              {/* 測驗模式狀態指示器 */}
+              <QuizStatusPanel
+                quizPhase={quizPhase}
+                quizResult={quizResult}
+                onRetry={() => {
+                  setQuizPhase('idle')
+                  setQuizResult(null)
+                }}
+              />
 
-          {/* 隨機考題區 */}
-          <RandomQuestionGenerator
-            isPlaying={isPlaying}
-            onGenerateEasy={handleGenerateEasyQuestion}
-            onGenerateMedium={handleGenerateMediumQuestion}
-            onGenerateHard={handleGenerateHardQuestion}
-            onGenerateHell={handleGenerateHellQuestion}
-          />
-          <Divider />
+              {/* 控制區 */}
+              <Group justify="space-between" align="flex-start" wrap="wrap">
+                <Stack gap="md" style={{ flex: 1, minWidth: '250px' }}>
+                  <Stack gap={0}>
+                    <Text size="sm">BPM: {bpm}</Text>
+                    <Slider value={bpm} onChange={setBpm} min={60} max={200} disabled={isPlaying} />
+                  </Stack>
+                  <Stack gap={0}>
+                    <Select
+                      label="拍子音效"
+                      value={soundType}
+                      onChange={(value) => value && setSoundType(value as SoundType)}
+                      data={SOUND_OPTIONS}
+                      disabled={isPlaying}
+                      allowDeselect={false}
+                    />
+                  </Stack>
+                  <Stack gap={0}>
+                    <Text size="sm">時間流動顯示</Text>
+                    <Group gap="xs" mt={4}>
+                      <Checkbox
+                        label="1"
+                        checked={showTimePositions[0]}
+                        onChange={() => toggleTimePosition(0)}
+                        size="xs"
+                      />
+                      <Checkbox
+                        label="e"
+                        checked={showTimePositions[1]}
+                        onChange={() => toggleTimePosition(1)}
+                        size="xs"
+                      />
+                      <Checkbox
+                        label="&"
+                        checked={showTimePositions[2]}
+                        onChange={() => toggleTimePosition(2)}
+                        size="xs"
+                      />
+                      <Checkbox
+                        label="a"
+                        checked={showTimePositions[3]}
+                        onChange={() => toggleTimePosition(3)}
+                        size="xs"
+                      />
+                    </Group>
+                  </Stack>
+                </Stack>
+              </Group>
 
-          {/* 預設管理區 */}
-          <PresetManager
-            customPresets={customPresets}
-            selectedPresetId={selectedPresetId}
-            newPresetName={newPresetName}
-            showManagePresets={showManagePresets}
-            isPlaying={isPlaying}
-            onLoadPreset={loadPreset}
-            onClearPattern={clearPattern}
-            onToggleManagePresets={() => setShowManagePresets(!showManagePresets)}
-            onSaveAsPreset={saveAsPreset}
-            onDeletePreset={deletePreset}
-            onNewPresetNameChange={setNewPresetName}
-          />
+              <Divider />
 
-          {/* 拍點編輯器 */}
-          <BeatEditor
-            customBeats={customBeats}
-            currentBeatIndex={currentBeatIndex}
-            currentTimeIndex={currentTimeIndex}
-            showTimePositions={showTimePositions}
-            isPlaying={isPlaying}
-            isQuizMode={isQuizMode}
-            quizPhase={quizPhase}
-            quizResult={quizResult}
-            onBeatToggle={handleBeatToggle}
-          />
-        </Stack>
+              {/* 拍點編輯器 */}
+              <BeatEditor
+                customBeats={customBeats}
+                currentBeatIndex={currentBeatIndex}
+                currentTimeIndex={currentTimeIndex}
+                showTimePositions={showTimePositions}
+                isPlaying={isPlaying}
+                isQuizMode={isQuizModeActive}
+                quizPhase={quizPhase}
+                quizResult={quizResult}
+                onBeatToggle={handleBeatToggle}
+              />
+            </Stack>
+          </Tabs.Panel>
+
+          {/* 隨機考題頁籤 */}
+          <Tabs.Panel value="random" pt="md">
+            <Stack gap="lg">
+              {/* 隨機考題生成器 */}
+              <RandomQuestionGenerator
+                isPlaying={isPlaying}
+                onGenerateEasy={handleGenerateEasyQuestion}
+                onGenerateMedium={handleGenerateMediumQuestion}
+                onGenerateHard={handleGenerateHardQuestion}
+                onGenerateHell={handleGenerateHellQuestion}
+              />
+
+              <Divider />
+
+              {/* 控制區 */}
+              <Group justify="space-between" align="flex-start" wrap="wrap">
+                <Group gap="lg">
+                  <Switch
+                    label="循環"
+                    checked={loop}
+                    onChange={(e) => setLoop(e.currentTarget.checked)}
+                    disabled={isPlaying}
+                  />
+                  <Switch
+                    label="倒數"
+                    checked={enableCountdown}
+                    onChange={(e) => setEnableCountdown(e.currentTarget.checked)}
+                    disabled={isPlaying}
+                    color="blue"
+                  />
+                </Group>
+                <Stack gap="md" style={{ flex: 1, minWidth: '250px' }}>
+                  <Stack gap={0}>
+                    <Text size="sm">BPM: {bpm}</Text>
+                    <Slider value={bpm} onChange={setBpm} min={60} max={200} disabled={isPlaying} />
+                  </Stack>
+                  <Stack gap={0}>
+                    <Select
+                      label="拍子音效"
+                      value={soundType}
+                      onChange={(value) => value && setSoundType(value as SoundType)}
+                      data={SOUND_OPTIONS}
+                      disabled={isPlaying}
+                      allowDeselect={false}
+                    />
+                  </Stack>
+                  <Stack gap={0}>
+                    <Text size="sm">時間流動顯示</Text>
+                    <Group gap="xs" mt={4}>
+                      <Checkbox
+                        label="1"
+                        checked={showTimePositions[0]}
+                        onChange={() => toggleTimePosition(0)}
+                        size="xs"
+                      />
+                      <Checkbox
+                        label="e"
+                        checked={showTimePositions[1]}
+                        onChange={() => toggleTimePosition(1)}
+                        size="xs"
+                      />
+                      <Checkbox
+                        label="&"
+                        checked={showTimePositions[2]}
+                        onChange={() => toggleTimePosition(2)}
+                        size="xs"
+                      />
+                      <Checkbox
+                        label="a"
+                        checked={showTimePositions[3]}
+                        onChange={() => toggleTimePosition(3)}
+                        size="xs"
+                      />
+                    </Group>
+                  </Stack>
+                </Stack>
+              </Group>
+
+              <Divider />
+
+              {/* 拍點編輯器 */}
+              <BeatEditor
+                customBeats={customBeats}
+                currentBeatIndex={currentBeatIndex}
+                currentTimeIndex={currentTimeIndex}
+                showTimePositions={showTimePositions}
+                isPlaying={isPlaying}
+                isQuizMode={false}
+                quizPhase={quizPhase}
+                quizResult={quizResult}
+                onBeatToggle={handleBeatToggle}
+              />
+            </Stack>
+          </Tabs.Panel>
+
+          {/* 自訂模式頁籤 */}
+          <Tabs.Panel value="custom" pt="md">
+            <Stack gap="lg">
+              {/* 預設管理區 */}
+              <PresetManager
+                customPresets={customPresets}
+                selectedPresetId={selectedPresetId}
+                newPresetName={newPresetName}
+                showManagePresets={showManagePresets}
+                isPlaying={isPlaying}
+                onLoadPreset={loadPreset}
+                onClearPattern={clearPattern}
+                onToggleManagePresets={() => setShowManagePresets(!showManagePresets)}
+                onSaveAsPreset={saveAsPreset}
+                onDeletePreset={deletePreset}
+                onNewPresetNameChange={setNewPresetName}
+              />
+
+              <Divider />
+
+              {/* 控制區 */}
+              <Group justify="space-between" align="flex-start" wrap="wrap">
+                <Group gap="lg">
+                  <Switch
+                    label="循環"
+                    checked={loop}
+                    onChange={(e) => setLoop(e.currentTarget.checked)}
+                    disabled={isPlaying}
+                  />
+                  <Switch
+                    label="倒數"
+                    checked={enableCountdown}
+                    onChange={(e) => setEnableCountdown(e.currentTarget.checked)}
+                    disabled={isPlaying}
+                    color="blue"
+                  />
+                </Group>
+                <Stack gap="md" style={{ flex: 1, minWidth: '250px' }}>
+                  <Stack gap={0}>
+                    <Text size="sm">BPM: {bpm}</Text>
+                    <Slider value={bpm} onChange={setBpm} min={60} max={200} disabled={isPlaying} />
+                  </Stack>
+                  <Stack gap={0}>
+                    <Select
+                      label="拍子音效"
+                      value={soundType}
+                      onChange={(value) => value && setSoundType(value as SoundType)}
+                      data={SOUND_OPTIONS}
+                      disabled={isPlaying}
+                      allowDeselect={false}
+                    />
+                  </Stack>
+                  <Stack gap={0}>
+                    <Text size="sm">時間流動顯示</Text>
+                    <Group gap="xs" mt={4}>
+                      <Checkbox
+                        label="1"
+                        checked={showTimePositions[0]}
+                        onChange={() => toggleTimePosition(0)}
+                        size="xs"
+                      />
+                      <Checkbox
+                        label="e"
+                        checked={showTimePositions[1]}
+                        onChange={() => toggleTimePosition(1)}
+                        size="xs"
+                      />
+                      <Checkbox
+                        label="&"
+                        checked={showTimePositions[2]}
+                        onChange={() => toggleTimePosition(2)}
+                        size="xs"
+                      />
+                      <Checkbox
+                        label="a"
+                        checked={showTimePositions[3]}
+                        onChange={() => toggleTimePosition(3)}
+                        size="xs"
+                      />
+                    </Group>
+                  </Stack>
+                </Stack>
+              </Group>
+
+              <Divider />
+
+              {/* 拍點編輯器 */}
+              <BeatEditor
+                customBeats={customBeats}
+                currentBeatIndex={currentBeatIndex}
+                currentTimeIndex={currentTimeIndex}
+                showTimePositions={showTimePositions}
+                isPlaying={isPlaying}
+                isQuizMode={false}
+                quizPhase={quizPhase}
+                quizResult={quizResult}
+                onBeatToggle={handleBeatToggle}
+              />
+            </Stack>
+          </Tabs.Panel>
+        </Tabs>
       </Paper>
       <Group mt="xl" justify="center">
         <Link to="/">
@@ -867,7 +1116,7 @@ export function Trainer() {
           lineHeight: '1.2'
         }}
       >
-        {isPlaying ? "停止" : (isQuizMode ? "開始測驗" : "開始")}
+        {isPlaying ? "停止" : (activeTab === 'quiz' ? "開始測驗" : "開始")}
       </Button>
     </Container>
   )

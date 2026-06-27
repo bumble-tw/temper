@@ -784,11 +784,11 @@ export function Trainer() {
   const isQuizModeActive = activeTab === 'quiz'
 
   return (
-    <Container size="lg" py="xl">
+    <Container size="lg" px={{ base: 'xs', sm: 'md' }} py={{ base: 'md', sm: 'xl' }}>
       <Title order={2} mb="lg">Swing 節拍練習器</Title>
-      <Paper shadow="xs" p="md" withBorder>
+      <Paper shadow="xs" p={{ base: 'xs', sm: 'md' }} withBorder>
         <Tabs value={activeTab} onChange={setActiveTab}>
-          <Tabs.List>
+          <Tabs.List grow style={{ flexWrap: 'nowrap' }}>
             <Tabs.Tab value="quiz">測驗模式</Tabs.Tab>
             <Tabs.Tab value="random">隨機考題</Tabs.Tab>
             <Tabs.Tab value="custom">自訂模式</Tabs.Tab>

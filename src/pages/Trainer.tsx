@@ -2,7 +2,7 @@
 // 節拍練習器主頁面
 
 import { useState, useEffect, useRef } from 'react'
-import { Container, Title, Paper, Stack, Divider, Group, Button, Modal, Center, Tabs, Text, Slider, Select, Switch, Checkbox } from '@mantine/core'
+import { Container, Title, Paper, Stack, Group, Button, Modal, Center, Tabs, Card } from '@mantine/core'
 import { Link } from 'react-router-dom'
 import * as Tone from 'tone'
 import { getTransport } from 'tone'
@@ -13,7 +13,7 @@ import type { QuizPhase, QuizEvaluation, QuizRecord } from '../types/quiz'
 
 // 常量導入
 import { INITIAL_CUSTOM_BEATS, BUILT_IN_PRESETS, CUSTOM_PRESETS_KEY } from '../constants/beats'
-import { SOUND_OPTIONS, type SoundType } from '../constants/soundTypes'
+import type { SoundType } from '../constants/soundTypes'
 
 // 工具函數導入
 import { generateEasyQuestion, generateMediumQuestion, generateHardQuestion, generateHellQuestion } from '../utils/beatGeneration'
@@ -27,6 +27,7 @@ import { QuizStatusPanel } from '../components/QuizStatusPanel'
 import { PresetManager } from '../components/PresetManager'
 import { BeatEditor } from '../components/BeatEditor'
 import { RandomQuestionGenerator } from '../components/RandomQuestionGenerator'
+import { TabControlsCard } from '../components/TabControlsCard'
 
 export function Trainer() {
   // 頁籤狀態
@@ -797,78 +798,42 @@ export function Trainer() {
           <Tabs.Panel value="quiz" pt="md">
             <Stack gap="lg">
               {/* 測驗模式狀態指示器 */}
-              <QuizStatusPanel
-                quizPhase={quizPhase}
-                quizResult={quizResult}
-                onRetry={() => {
-                  setQuizPhase('idle')
-                  setQuizResult(null)
-                }}
-              />
+              <Card withBorder shadow="sm" radius="md" p="md">
+                <QuizStatusPanel
+                  quizPhase={quizPhase}
+                  quizResult={quizResult}
+                  onRetry={() => {
+                    setQuizPhase('idle')
+                    setQuizResult(null)
+                  }}
+                />
+              </Card>
 
               {/* 控制區 */}
-              <Group justify="space-between" align="flex-start" wrap="wrap">
-                <Stack gap="md" style={{ flex: 1, minWidth: '250px' }}>
-                  <Stack gap={0}>
-                    <Text size="sm">BPM: {bpm}</Text>
-                    <Slider value={bpm} onChange={setBpm} min={60} max={200} disabled={isPlaying} />
-                  </Stack>
-                  <Stack gap={0}>
-                    <Select
-                      label="拍子音效"
-                      value={soundType}
-                      onChange={(value) => value && setSoundType(value as SoundType)}
-                      data={SOUND_OPTIONS}
-                      disabled={isPlaying}
-                      allowDeselect={false}
-                    />
-                  </Stack>
-                  <Stack gap={0}>
-                    <Text size="sm">時間流動顯示</Text>
-                    <Group gap="xs" mt={4}>
-                      <Checkbox
-                        label="1"
-                        checked={showTimePositions[0]}
-                        onChange={() => toggleTimePosition(0)}
-                        size="xs"
-                      />
-                      <Checkbox
-                        label="e"
-                        checked={showTimePositions[1]}
-                        onChange={() => toggleTimePosition(1)}
-                        size="xs"
-                      />
-                      <Checkbox
-                        label="&"
-                        checked={showTimePositions[2]}
-                        onChange={() => toggleTimePosition(2)}
-                        size="xs"
-                      />
-                      <Checkbox
-                        label="a"
-                        checked={showTimePositions[3]}
-                        onChange={() => toggleTimePosition(3)}
-                        size="xs"
-                      />
-                    </Group>
-                  </Stack>
-                </Stack>
-              </Group>
-
-              <Divider />
+              <TabControlsCard
+                bpm={bpm}
+                onBpmChange={setBpm}
+                soundType={soundType}
+                onSoundTypeChange={setSoundType}
+                showTimePositions={showTimePositions}
+                onToggleTimePosition={toggleTimePosition}
+                isPlaying={isPlaying}
+              />
 
               {/* 拍點編輯器 */}
-              <BeatEditor
-                customBeats={customBeats}
-                currentBeatIndex={currentBeatIndex}
-                currentTimeIndex={currentTimeIndex}
-                showTimePositions={showTimePositions}
-                isPlaying={isPlaying}
-                isQuizMode={isQuizModeActive}
-                quizPhase={quizPhase}
-                quizResult={quizResult}
-                onBeatToggle={handleBeatToggle}
-              />
+              <Card withBorder shadow="sm" radius="md" p="md">
+                <BeatEditor
+                  customBeats={customBeats}
+                  currentBeatIndex={currentBeatIndex}
+                  currentTimeIndex={currentTimeIndex}
+                  showTimePositions={showTimePositions}
+                  isPlaying={isPlaying}
+                  isQuizMode={isQuizModeActive}
+                  quizPhase={quizPhase}
+                  quizResult={quizResult}
+                  onBeatToggle={handleBeatToggle}
+                />
+              </Card>
             </Stack>
           </Tabs.Panel>
 
@@ -876,94 +841,46 @@ export function Trainer() {
           <Tabs.Panel value="random" pt="md">
             <Stack gap="lg">
               {/* 隨機考題生成器 */}
-              <RandomQuestionGenerator
-                isPlaying={isPlaying}
-                onGenerateEasy={handleGenerateEasyQuestion}
-                onGenerateMedium={handleGenerateMediumQuestion}
-                onGenerateHard={handleGenerateHardQuestion}
-                onGenerateHell={handleGenerateHellQuestion}
-              />
-
-              <Divider />
+              <Card withBorder shadow="sm" radius="md" p="md">
+                <RandomQuestionGenerator
+                  isPlaying={isPlaying}
+                  onGenerateEasy={handleGenerateEasyQuestion}
+                  onGenerateMedium={handleGenerateMediumQuestion}
+                  onGenerateHard={handleGenerateHardQuestion}
+                  onGenerateHell={handleGenerateHellQuestion}
+                />
+              </Card>
 
               {/* 控制區 */}
-              <Group justify="space-between" align="flex-start" wrap="wrap">
-                <Group gap="lg">
-                  <Switch
-                    label="循環"
-                    checked={loop}
-                    onChange={(e) => setLoop(e.currentTarget.checked)}
-                    disabled={isPlaying}
-                  />
-                  <Switch
-                    label="倒數"
-                    checked={enableCountdown}
-                    onChange={(e) => setEnableCountdown(e.currentTarget.checked)}
-                    disabled={isPlaying}
-                    color="blue"
-                  />
-                </Group>
-                <Stack gap="md" style={{ flex: 1, minWidth: '250px' }}>
-                  <Stack gap={0}>
-                    <Text size="sm">BPM: {bpm}</Text>
-                    <Slider value={bpm} onChange={setBpm} min={60} max={200} disabled={isPlaying} />
-                  </Stack>
-                  <Stack gap={0}>
-                    <Select
-                      label="拍子音效"
-                      value={soundType}
-                      onChange={(value) => value && setSoundType(value as SoundType)}
-                      data={SOUND_OPTIONS}
-                      disabled={isPlaying}
-                      allowDeselect={false}
-                    />
-                  </Stack>
-                  <Stack gap={0}>
-                    <Text size="sm">時間流動顯示</Text>
-                    <Group gap="xs" mt={4}>
-                      <Checkbox
-                        label="1"
-                        checked={showTimePositions[0]}
-                        onChange={() => toggleTimePosition(0)}
-                        size="xs"
-                      />
-                      <Checkbox
-                        label="e"
-                        checked={showTimePositions[1]}
-                        onChange={() => toggleTimePosition(1)}
-                        size="xs"
-                      />
-                      <Checkbox
-                        label="&"
-                        checked={showTimePositions[2]}
-                        onChange={() => toggleTimePosition(2)}
-                        size="xs"
-                      />
-                      <Checkbox
-                        label="a"
-                        checked={showTimePositions[3]}
-                        onChange={() => toggleTimePosition(3)}
-                        size="xs"
-                      />
-                    </Group>
-                  </Stack>
-                </Stack>
-              </Group>
-
-              <Divider />
+              <TabControlsCard
+                bpm={bpm}
+                onBpmChange={setBpm}
+                soundType={soundType}
+                onSoundTypeChange={setSoundType}
+                showTimePositions={showTimePositions}
+                onToggleTimePosition={toggleTimePosition}
+                isPlaying={isPlaying}
+                showLoopAndCountdown
+                loop={loop}
+                onToggleLoop={setLoop}
+                enableCountdown={enableCountdown}
+                onToggleCountdown={setEnableCountdown}
+              />
 
               {/* 拍點編輯器 */}
-              <BeatEditor
-                customBeats={customBeats}
-                currentBeatIndex={currentBeatIndex}
-                currentTimeIndex={currentTimeIndex}
-                showTimePositions={showTimePositions}
-                isPlaying={isPlaying}
-                isQuizMode={false}
-                quizPhase={quizPhase}
-                quizResult={quizResult}
-                onBeatToggle={handleBeatToggle}
-              />
+              <Card withBorder shadow="sm" radius="md" p="md">
+                <BeatEditor
+                  customBeats={customBeats}
+                  currentBeatIndex={currentBeatIndex}
+                  currentTimeIndex={currentTimeIndex}
+                  showTimePositions={showTimePositions}
+                  isPlaying={isPlaying}
+                  isQuizMode={false}
+                  quizPhase={quizPhase}
+                  quizResult={quizResult}
+                  onBeatToggle={handleBeatToggle}
+                />
+              </Card>
             </Stack>
           </Tabs.Panel>
 
@@ -971,100 +888,52 @@ export function Trainer() {
           <Tabs.Panel value="custom" pt="md">
             <Stack gap="lg">
               {/* 預設管理區 */}
-              <PresetManager
-                customPresets={customPresets}
-                selectedPresetId={selectedPresetId}
-                newPresetName={newPresetName}
-                showManagePresets={showManagePresets}
-                isPlaying={isPlaying}
-                onLoadPreset={loadPreset}
-                onClearPattern={clearPattern}
-                onToggleManagePresets={() => setShowManagePresets(!showManagePresets)}
-                onSaveAsPreset={saveAsPreset}
-                onDeletePreset={deletePreset}
-                onNewPresetNameChange={setNewPresetName}
-              />
-
-              <Divider />
+              <Card withBorder shadow="sm" radius="md" p="md">
+                <PresetManager
+                  customPresets={customPresets}
+                  selectedPresetId={selectedPresetId}
+                  newPresetName={newPresetName}
+                  showManagePresets={showManagePresets}
+                  isPlaying={isPlaying}
+                  onLoadPreset={loadPreset}
+                  onClearPattern={clearPattern}
+                  onToggleManagePresets={() => setShowManagePresets(!showManagePresets)}
+                  onSaveAsPreset={saveAsPreset}
+                  onDeletePreset={deletePreset}
+                  onNewPresetNameChange={setNewPresetName}
+                />
+              </Card>
 
               {/* 控制區 */}
-              <Group justify="space-between" align="flex-start" wrap="wrap">
-                <Group gap="lg">
-                  <Switch
-                    label="循環"
-                    checked={loop}
-                    onChange={(e) => setLoop(e.currentTarget.checked)}
-                    disabled={isPlaying}
-                  />
-                  <Switch
-                    label="倒數"
-                    checked={enableCountdown}
-                    onChange={(e) => setEnableCountdown(e.currentTarget.checked)}
-                    disabled={isPlaying}
-                    color="blue"
-                  />
-                </Group>
-                <Stack gap="md" style={{ flex: 1, minWidth: '250px' }}>
-                  <Stack gap={0}>
-                    <Text size="sm">BPM: {bpm}</Text>
-                    <Slider value={bpm} onChange={setBpm} min={60} max={200} disabled={isPlaying} />
-                  </Stack>
-                  <Stack gap={0}>
-                    <Select
-                      label="拍子音效"
-                      value={soundType}
-                      onChange={(value) => value && setSoundType(value as SoundType)}
-                      data={SOUND_OPTIONS}
-                      disabled={isPlaying}
-                      allowDeselect={false}
-                    />
-                  </Stack>
-                  <Stack gap={0}>
-                    <Text size="sm">時間流動顯示</Text>
-                    <Group gap="xs" mt={4}>
-                      <Checkbox
-                        label="1"
-                        checked={showTimePositions[0]}
-                        onChange={() => toggleTimePosition(0)}
-                        size="xs"
-                      />
-                      <Checkbox
-                        label="e"
-                        checked={showTimePositions[1]}
-                        onChange={() => toggleTimePosition(1)}
-                        size="xs"
-                      />
-                      <Checkbox
-                        label="&"
-                        checked={showTimePositions[2]}
-                        onChange={() => toggleTimePosition(2)}
-                        size="xs"
-                      />
-                      <Checkbox
-                        label="a"
-                        checked={showTimePositions[3]}
-                        onChange={() => toggleTimePosition(3)}
-                        size="xs"
-                      />
-                    </Group>
-                  </Stack>
-                </Stack>
-              </Group>
-
-              <Divider />
+              <TabControlsCard
+                bpm={bpm}
+                onBpmChange={setBpm}
+                soundType={soundType}
+                onSoundTypeChange={setSoundType}
+                showTimePositions={showTimePositions}
+                onToggleTimePosition={toggleTimePosition}
+                isPlaying={isPlaying}
+                showLoopAndCountdown
+                loop={loop}
+                onToggleLoop={setLoop}
+                enableCountdown={enableCountdown}
+                onToggleCountdown={setEnableCountdown}
+              />
 
               {/* 拍點編輯器 */}
-              <BeatEditor
-                customBeats={customBeats}
-                currentBeatIndex={currentBeatIndex}
-                currentTimeIndex={currentTimeIndex}
-                showTimePositions={showTimePositions}
-                isPlaying={isPlaying}
-                isQuizMode={false}
-                quizPhase={quizPhase}
-                quizResult={quizResult}
-                onBeatToggle={handleBeatToggle}
-              />
+              <Card withBorder shadow="sm" radius="md" p="md">
+                <BeatEditor
+                  customBeats={customBeats}
+                  currentBeatIndex={currentBeatIndex}
+                  currentTimeIndex={currentTimeIndex}
+                  showTimePositions={showTimePositions}
+                  isPlaying={isPlaying}
+                  isQuizMode={false}
+                  quizPhase={quizPhase}
+                  quizResult={quizResult}
+                  onBeatToggle={handleBeatToggle}
+                />
+              </Card>
             </Stack>
           </Tabs.Panel>
         </Tabs>

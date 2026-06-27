@@ -1,65 +1,58 @@
-// src/components/ControlPanel.tsx
-// 控制面板組件
+// src/components/TabControlsCard.tsx
+// 共用的分頁控制項卡片：BPM 滑桿、音效選擇、時間流動顯示，並可選擇顯示循環/倒數開關
 
-import { Group, Switch, Stack, Text, Slider, Checkbox, Select } from '@mantine/core'
+import { Card, Stack, Text, Slider, Select, Checkbox, Group, Switch } from '@mantine/core'
 import { SOUND_OPTIONS, type SoundType } from '../constants/soundTypes'
 
-export interface ControlPanelProps {
-  isPlaying: boolean
-  isQuizMode: boolean
-  loop: boolean
+export interface TabControlsCardProps {
   bpm: number
-  showTimePositions: boolean[]
-  enableCountdown: boolean
-  soundType: SoundType
-  onToggleQuizMode: (checked: boolean) => void
-  onToggleLoop: (checked: boolean) => void
   onBpmChange: (value: number) => void
-  onToggleTimePosition: (index: number) => void
-  onToggleCountdown: (checked: boolean) => void
+  soundType: SoundType
   onSoundTypeChange: (type: SoundType) => void
+  showTimePositions: boolean[]
+  onToggleTimePosition: (index: number) => void
+  isPlaying: boolean
+  showLoopAndCountdown?: boolean
+  loop?: boolean
+  onToggleLoop?: (value: boolean) => void
+  enableCountdown?: boolean
+  onToggleCountdown?: (value: boolean) => void
 }
 
-export function ControlPanel({
-  isPlaying,
-  isQuizMode,
-  loop,
+export function TabControlsCard({
   bpm,
-  showTimePositions,
-  enableCountdown,
-  soundType,
-  onToggleQuizMode,
-  onToggleLoop,
   onBpmChange,
+  soundType,
+  onSoundTypeChange,
+  showTimePositions,
   onToggleTimePosition,
-  onToggleCountdown,
-  onSoundTypeChange
-}: ControlPanelProps) {
+  isPlaying,
+  showLoopAndCountdown = false,
+  loop = false,
+  onToggleLoop,
+  enableCountdown = false,
+  onToggleCountdown
+}: TabControlsCardProps) {
   return (
-    <Group justify="space-between" align="flex-start" wrap="wrap">
-      <Group gap="lg">
-        <Switch
-          label="循環"
-          checked={loop}
-          onChange={(e) => onToggleLoop(e.currentTarget.checked)}
-          disabled={isPlaying || isQuizMode}
-        />
-        <Switch
-          label="測驗模式"
-          checked={isQuizMode}
-          onChange={(e) => onToggleQuizMode(e.currentTarget.checked)}
-          disabled={isPlaying}
-          color="orange"
-        />
-        <Switch
-          label="倒數"
-          checked={enableCountdown}
-          onChange={(e) => onToggleCountdown(e.currentTarget.checked)}
-          disabled={isPlaying}
-          color="blue"
-        />
-      </Group>
-      <Stack gap="md" style={{ flex: 1, minWidth: '250px' }}>
+    <Card withBorder shadow="sm" radius="md" p="md">
+      <Stack gap="md">
+        {showLoopAndCountdown && (
+          <Group gap="lg">
+            <Switch
+              label="循環"
+              checked={loop}
+              onChange={(e) => onToggleLoop?.(e.currentTarget.checked)}
+              disabled={isPlaying}
+            />
+            <Switch
+              label="倒數"
+              checked={enableCountdown}
+              onChange={(e) => onToggleCountdown?.(e.currentTarget.checked)}
+              disabled={isPlaying}
+              color="blue"
+            />
+          </Group>
+        )}
         <Stack gap={0}>
           <Text size="sm">BPM: {bpm}</Text>
           <Slider value={bpm} onChange={onBpmChange} min={60} max={200} disabled={isPlaying} />
@@ -104,6 +97,6 @@ export function ControlPanel({
           </Group>
         </Stack>
       </Stack>
-    </Group>
+    </Card>
   )
 }

@@ -33,7 +33,7 @@ export function BeatEditor({
   return (
     <>
       {/* 視覺化與編輯區 */}
-      <Paper p="md" withBorder bg="gray.0">
+      <Paper p="md" radius="md" bg="gray.0">
         {/* 主要節奏顯示區 - 序列檢視 */}
         <Stack gap="md" align="center">
           {[0, 1, 2, 3, 4, 5, 6, 7].map((beatNumber) => {
@@ -73,8 +73,8 @@ export function BeatEditor({
         </Stack>
       </Paper>
       {/* 底部說明 */}
-      <Paper p="xs" bg="blue.0">
-        <Text size="xs" ta="center" c="blue.8">
+      <Paper p="xs" radius="md" bg="violet.0" mt="xs">
+        <Text size="xs" ta="center" c="violet.8">
           點擊上方 1-8 拍的任意圓點來編輯節奏
         </Text>
       </Paper>

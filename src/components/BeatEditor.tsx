@@ -1,7 +1,7 @@
 // src/components/BeatEditor.tsx
 // 拍點編輯器組件
 
-import { Paper, Group, Text, Stack } from '@mantine/core'
+import { Card, Paper, Group, Text, Stack } from '@mantine/core'
 import type { SubBeat } from '../types/rhythm'
 import type { QuizEvaluation } from '../types/quiz'
 import type { QuizPhase } from '../types/quiz'
@@ -31,9 +31,9 @@ export function BeatEditor({
   onBeatToggle
 }: BeatEditorProps) {
   return (
-    <>
+    <Card withBorder shadow="sm" radius="md" p="md">
       {/* 視覺化與編輯區 */}
-      <Paper p="md" radius="md" bg="gray.0">
+      <Paper p={0} bg="gray.0">
         {/* 主要節奏顯示區 - 序列檢視 */}
         <Stack gap="md" align="center">
           {[0, 1, 2, 3, 4, 5, 6, 7].map((beatNumber) => {
@@ -41,7 +41,7 @@ export function BeatEditor({
             const beatGroup = customBeats.slice(startIndex, startIndex + 4)
 
             return (
-              <Group key={beatNumber} gap="xs" justify="center">
+              <Group key={beatNumber} gap="xs" justify="center" wrap="nowrap">
                 {beatGroup.map((beat, subIndex) => {
                   const index = startIndex + subIndex
 
@@ -53,7 +53,7 @@ export function BeatEditor({
                   return (
                     <div
                       key={index}
-                      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}
+                      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}
                       onClick={() => onBeatToggle(index)}
                     >
                       <BeatIndicator
@@ -73,11 +73,11 @@ export function BeatEditor({
         </Stack>
       </Paper>
       {/* 底部說明 */}
-      <Paper p="xs" radius="md" bg="violet.0" mt="xs">
+      <Paper p="xs" radius="md" bg="violet.0" mt="md">
         <Text size="xs" ta="center" c="violet.8">
           點擊上方 1-8 拍的任意圓點來編輯節奏
         </Text>
       </Paper>
-    </>
+    </Card>
   )
 }

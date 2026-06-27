@@ -798,16 +798,14 @@ export function Trainer() {
           <Tabs.Panel value="quiz" pt="md">
             <Stack gap="lg">
               {/* 測驗模式狀態指示器 */}
-              <Card withBorder shadow="sm" radius="md" p="md">
-                <QuizStatusPanel
-                  quizPhase={quizPhase}
-                  quizResult={quizResult}
-                  onRetry={() => {
-                    setQuizPhase('idle')
-                    setQuizResult(null)
-                  }}
-                />
-              </Card>
+              <QuizStatusPanel
+                quizPhase={quizPhase}
+                quizResult={quizResult}
+                onRetry={() => {
+                  setQuizPhase('idle')
+                  setQuizResult(null)
+                }}
+              />
 
               {/* 控制區 */}
               <TabControlsCard
@@ -821,19 +819,17 @@ export function Trainer() {
               />
 
               {/* 拍點編輯器 */}
-              <Card withBorder shadow="sm" radius="md" p="md">
-                <BeatEditor
-                  customBeats={customBeats}
-                  currentBeatIndex={currentBeatIndex}
-                  currentTimeIndex={currentTimeIndex}
-                  showTimePositions={showTimePositions}
-                  isPlaying={isPlaying}
-                  isQuizMode={isQuizModeActive}
-                  quizPhase={quizPhase}
-                  quizResult={quizResult}
-                  onBeatToggle={handleBeatToggle}
-                />
-              </Card>
+              <BeatEditor
+                customBeats={customBeats}
+                currentBeatIndex={currentBeatIndex}
+                currentTimeIndex={currentTimeIndex}
+                showTimePositions={showTimePositions}
+                isPlaying={isPlaying}
+                isQuizMode={isQuizModeActive}
+                quizPhase={quizPhase}
+                quizResult={quizResult}
+                onBeatToggle={handleBeatToggle}
+              />
             </Stack>
           </Tabs.Panel>
 
@@ -841,15 +837,13 @@ export function Trainer() {
           <Tabs.Panel value="random" pt="md">
             <Stack gap="lg">
               {/* 隨機考題生成器 */}
-              <Card withBorder shadow="sm" radius="md" p="md">
-                <RandomQuestionGenerator
-                  isPlaying={isPlaying}
-                  onGenerateEasy={handleGenerateEasyQuestion}
-                  onGenerateMedium={handleGenerateMediumQuestion}
-                  onGenerateHard={handleGenerateHardQuestion}
-                  onGenerateHell={handleGenerateHellQuestion}
-                />
-              </Card>
+              <RandomQuestionGenerator
+                isPlaying={isPlaying}
+                onGenerateEasy={handleGenerateEasyQuestion}
+                onGenerateMedium={handleGenerateMediumQuestion}
+                onGenerateHard={handleGenerateHardQuestion}
+                onGenerateHell={handleGenerateHellQuestion}
+              />
 
               {/* 控制區 */}
               <TabControlsCard
@@ -868,19 +862,17 @@ export function Trainer() {
               />
 
               {/* 拍點編輯器 */}
-              <Card withBorder shadow="sm" radius="md" p="md">
-                <BeatEditor
-                  customBeats={customBeats}
-                  currentBeatIndex={currentBeatIndex}
-                  currentTimeIndex={currentTimeIndex}
-                  showTimePositions={showTimePositions}
-                  isPlaying={isPlaying}
-                  isQuizMode={false}
-                  quizPhase={quizPhase}
-                  quizResult={quizResult}
-                  onBeatToggle={handleBeatToggle}
-                />
-              </Card>
+              <BeatEditor
+                customBeats={customBeats}
+                currentBeatIndex={currentBeatIndex}
+                currentTimeIndex={currentTimeIndex}
+                showTimePositions={showTimePositions}
+                isPlaying={isPlaying}
+                isQuizMode={false}
+                quizPhase={quizPhase}
+                quizResult={quizResult}
+                onBeatToggle={handleBeatToggle}
+              />
             </Stack>
           </Tabs.Panel>
 
@@ -921,19 +913,17 @@ export function Trainer() {
               />
 
               {/* 拍點編輯器 */}
-              <Card withBorder shadow="sm" radius="md" p="md">
-                <BeatEditor
-                  customBeats={customBeats}
-                  currentBeatIndex={currentBeatIndex}
-                  currentTimeIndex={currentTimeIndex}
-                  showTimePositions={showTimePositions}
-                  isPlaying={isPlaying}
-                  isQuizMode={false}
-                  quizPhase={quizPhase}
-                  quizResult={quizResult}
-                  onBeatToggle={handleBeatToggle}
-                />
-              </Card>
+              <BeatEditor
+                customBeats={customBeats}
+                currentBeatIndex={currentBeatIndex}
+                currentTimeIndex={currentTimeIndex}
+                showTimePositions={showTimePositions}
+                isPlaying={isPlaying}
+                isQuizMode={false}
+                quizPhase={quizPhase}
+                quizResult={quizResult}
+                onBeatToggle={handleBeatToggle}
+              />
             </Stack>
           </Tabs.Panel>
         </Tabs>

@@ -19,7 +19,7 @@ export function RandomQuestionGenerator({
   onGenerateHell
 }: RandomQuestionGeneratorProps) {
   return (
-    <Paper p="md" withBorder bg="orange.0">
+    <Paper p="md" withBorder shadow="sm" radius="md" bg="orange.0">
       <Stack gap="md">
         <Text size="sm" fw={600} c="orange.8">隨機考題生成器</Text>
         <Group gap="md" wrap="wrap">

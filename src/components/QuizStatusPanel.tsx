@@ -12,7 +12,7 @@ export interface QuizStatusPanelProps {
 
 export function QuizStatusPanel({ quizPhase, quizResult, onRetry }: QuizStatusPanelProps) {
   return (
-    <Paper p="md" radius="md" bg={
+    <Paper p="md" withBorder shadow="sm" radius="md" bg={
       quizPhase === 'idle' ? 'gray.0' :
       quizPhase === 'playing' ? 'blue.0' :
       quizPhase === 'recording' ? 'orange.1' :

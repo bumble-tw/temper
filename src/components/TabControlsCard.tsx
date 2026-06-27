@@ -69,7 +69,7 @@ export function TabControlsCard({
         </Stack>
         <Stack gap={0}>
           <Text size="sm">時間流動顯示</Text>
-          <Group gap="xs" mt={4}>
+          <Group gap="xs" mt={4} wrap="nowrap">
             <Checkbox
               label="1"
               checked={showTimePositions[0]}
